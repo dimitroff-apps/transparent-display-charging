@@ -11,8 +11,8 @@ android {
         applicationId = "com.tdc.charging"
         minSdk = 26
         targetSdk = 34
-        versionCode = 4
-        versionName = "1.3"
+        versionCode = 5
+        versionName = "1.4"
     }
 
     // Fixed key in the repo, so every new APK installs over the old one

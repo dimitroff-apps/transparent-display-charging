@@ -43,10 +43,13 @@ object Scene {
             loadUrl(url(context, demo))
         }
 
-    /** Page address with the theme that is selected right now */
+    /** Page address with the theme and colours that are selected right now */
     fun url(context: Context, demo: String?): String {
         val theme = ThemeCatalog.current(context).id
         val demoPart = if (demo != null) "&demo=$demo" else ""
-        return "file:///android_asset/scene.html?theme=$theme$demoPart"
+        val colors = Prefs.Slot.values().joinToString("") { slot ->
+            Prefs.color(context, slot)?.let { "&${slot.param}=%06x".format(it and 0xFFFFFF) } ?: ""
+        }
+        return "file:///android_asset/scene.html?theme=$theme$demoPart$colors"
     }
 }

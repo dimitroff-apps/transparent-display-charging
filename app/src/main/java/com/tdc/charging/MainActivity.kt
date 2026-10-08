@@ -12,6 +12,10 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.text.Spannable
+import android.text.SpannableString
+import android.text.style.ForegroundColorSpan
+import android.text.style.RelativeSizeSpan
 import android.util.TypedValue
 import android.view.Gravity
 import android.widget.Button
@@ -27,6 +31,7 @@ class MainActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var autoSwitch: Switch
     private lateinit var themeText: TextView
+    private val colorButtons = mutableMapOf<Prefs.Slot, Button>()
 
     private fun dp(v: Int) = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v.toFloat(), resources.displayMetrics).toInt()
 
@@ -44,6 +49,14 @@ class MainActivity : Activity() {
         themeText = text("", 15f)
         col.addView(themeText)
         col.addView(button("Избери тема") { chooseTheme() })
+
+        col.addView(header("Цветове"))
+        for (slot in Prefs.Slot.values()) {
+            val b = button("") { pickColor(slot) }
+            colorButtons[slot] = b
+            col.addView(b)
+        }
+        col.addView(text("Плъзни пръст по цветовия микс, за да избереш цвят.", 13f, muted = true))
 
         col.addView(header("Ръчно"))
         col.addView(button("Покажи анимацията") { startActivity(ChargingActivity.intent(this, auto = false)) })
@@ -129,7 +142,41 @@ class MainActivity : Activity() {
             .show()
     }
 
+    private fun slotName(slot: Prefs.Slot) = when (slot) {
+        Prefs.Slot.CHARGE -> "Зареждане"
+        Prefs.Slot.DRAIN -> "Разреждане"
+        Prefs.Slot.TEXT -> "Проценти"
+    }
+
+    /** What the scene uses when nothing is picked (the percentage then follows the state colour) */
+    private fun defaultColor(slot: Prefs.Slot) = when (slot) {
+        Prefs.Slot.CHARGE -> Color.rgb(110, 255, 140)
+        Prefs.Slot.DRAIN -> Color.rgb(255, 160, 40)
+        Prefs.Slot.TEXT -> Color.rgb(125, 255, 165)
+    }
+
+    private fun pickColor(slot: Prefs.Slot) {
+        val cur = Prefs.color(this, slot) ?: defaultColor(slot)
+        ColorPicker.show(this, "Цвят: ${slotName(slot)}", cur) { c ->
+            Prefs.setColor(this, slot, c)
+            refresh()
+            // Show the result straight away; on battery colours are seen in the discharge demo
+            startActivity(ChargingActivity.intent(this, false, if (slot == Prefs.Slot.DRAIN) "drain" else "charge"))
+        }
+    }
+
+    private fun refreshColors() {
+        for ((slot, b) in colorButtons) {
+            val c = Prefs.color(this, slot)
+            val label = SpannableString("●  ${slotName(slot)}" + if (c == null) " (по подразбиране)" else "")
+            label.setSpan(ForegroundColorSpan(c ?: defaultColor(slot)), 0, 1, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+            label.setSpan(RelativeSizeSpan(1.4f), 0, 1, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+            b.text = label
+        }
+    }
+
     private fun refresh() {
+        refreshColors()
         val detected = ThemeCatalog.detect(this)
         val cur = ThemeCatalog.current(this)
         themeText.text = buildString {
