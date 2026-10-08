@@ -33,7 +33,7 @@
     font-family: 'Exo 2', 'Segoe UI', Roboto, sans-serif;
     -webkit-tap-highlight-color: transparent; user-select: none;
   }
-  #scene { position: fixed; top: 0; left: 0; display: block; }
+  #scene { position: fixed; top: 0; left: 0; display: block; touch-action: none; }
   #hint {
     position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
     font-size: 14px; color: var(--muted); background: rgba(0, 0, 0, 0.55); padding: 6px 12px; border-radius: 999px;
@@ -437,7 +437,8 @@
   }
 
   // Darkness mask: clear around the battery, fading to full black about 5 mm
-  // inside the side edges and 7.5 mm inside the top and bottom edges of the screen
+  // inside the side edges and 7.5 mm inside the top and bottom edges of the screen.
+  // The black edge frame is drawn once; the ellipse around the battery follows the swipe.
   const mask = document.createElement('canvas');
   function buildMask() {
     mask.width = W * dpr; mask.height = H * dpr;
@@ -451,15 +452,36 @@
     m.fillStyle = '#fff'; m.fill();
     m.filter = 'none';
     m.globalCompositeOperation = 'source-over';
-    // Gradual dimming away from the battery
-    const cx = BAT.x + BAT.w / 2, cy = BAT.y + BAT.h / 2, rx = BAT.w * 0.66, ry = BAT.h * 0.6;
-    m.save();
-    m.translate(cx, cy); m.scale(1, ry / rx);
-    const g = m.createRadialGradient(0, 0, 0, 0, 0, rx * 1.9);
-    g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(0.5, 'rgba(0,0,0,0)');
-    g.addColorStop(0.6, 'rgba(0,0,0,0.3)'); g.addColorStop(0.8, 'rgba(0,0,0,0.72)'); g.addColorStop(1, 'rgba(0,0,0,0.92)');
-    m.fillStyle = g; m.fillRect(-W * 2, -H * 4, W * 4, H * 8);
-    m.restore();
+  }
+
+  // ---------- Reveal swipe ----------
+  // reveal 0 = almost closed (about 95% dark), REVEAL_HOME = the default look, 1 = clean board, no darkening
+  const REVEAL_HOME = 0.3;
+  let reveal = REVEAL_HOME, revealTarget = REVEAL_HOME;
+  try { const v = parseFloat(localStorage.getItem('tdc.reveal')); if (v >= 0 && v <= 1) reveal = revealTarget = v; } catch (_) {}
+  const clamp01 = v => Math.max(0, Math.min(1, v));
+  /** How much of the black display is still there: 1 up to the default look, 0 when fully open */
+  const blackness = () => 1 - clamp01((reveal - REVEAL_HOME) / (1 - REVEAL_HOME));
+
+  function drawDarkness() {
+    const cx = BAT.x + BAT.w / 2, cy = BAT.y + BAT.h / 2;
+    // Below the default look the ellipse closes in; above it, it opens past the screen
+    const k = reveal <= REVEAL_HOME ? 0.42 + 0.58 * (reveal / REVEAL_HOME) : 1 + 2.2 * (reveal - REVEAL_HOME) / (1 - REVEAL_HOME);
+    const edge = 0.92 + 0.03 * (1 - clamp01(reveal / REVEAL_HOME)), fade = blackness();
+    if (fade > 0.001) {
+      ctx.globalAlpha = fade;
+      ctx.drawImage(mask, 0, 0, W, H);
+      const rx = BAT.w * 0.66 * k, ry = BAT.h * 0.6 * k;
+      ctx.save();
+      ctx.translate(cx, cy); ctx.scale(1, ry / rx);
+      const g = ctx.createRadialGradient(0, 0, 0, 0, 0, rx * 1.9);
+      g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(0.5, 'rgba(0,0,0,0)');
+      g.addColorStop(0.6, `rgba(0,0,0,${0.3 * edge / 0.92})`); g.addColorStop(0.8, `rgba(0,0,0,${0.72 * edge / 0.92})`);
+      g.addColorStop(1, `rgba(0,0,0,${edge})`);
+      ctx.fillStyle = g; ctx.fillRect(-W * 4, -H * 8, W * 8, H * 16);
+      ctx.restore();
+      ctx.globalAlpha = 1;
+    }
   }
 
   // ---------- Theme ----------
@@ -770,16 +792,21 @@
     }
     ctx.globalCompositeOperation = 'source-over';
 
-    // ----- Display glass on top -----
+    // ----- Display glass on top (fades out with the black display) -----
+    const black = blackness();
     ctx.save(); rr(ctx, px, py, pw, ph, S(0.1)); ctx.clip();
+    ctx.globalAlpha = black;
     g = ctx.createLinearGradient(px, py, px + pw, py + ph);
     g.addColorStop(0, 'rgba(150,190,255,0.07)'); g.addColorStop(0.35, 'rgba(255,255,255,0.0)');
     g.addColorStop(0.42, 'rgba(255,255,255,0.05)'); g.addColorStop(0.5, 'rgba(255,255,255,0.0)'); g.addColorStop(1, 'rgba(120,170,255,0.05)');
     ctx.fillStyle = g; ctx.fillRect(px, py, pw, ph);
     ctx.restore();
-    ctx.drawImage(mask, 0, 0, W, H);
+    drawDarkness();
 
-    // ----- Punch-hole ring and charge readout -----
+    // ----- Punch-hole ring and charge readout: they live on the black display and fade with it -----
+    const shown = black * black; // fade a bit ahead of the darkness so nothing ghosts over the clean board
+    if (shown < 0.01) return;
+    ctx.globalAlpha = shown;
     const cx = CUT ? CUT.x : X(0.5), cy = CUT ? CUT.y : Y(0.04), hole = CUT ? CUT.r : S(0.03), ringR = Math.max(S(0.052), hole + S(0.02));
     g = ctx.createRadialGradient(cx, cy + S(0.17), 0, cx, cy + S(0.17), S(0.4));
     g.addColorStop(0, 'rgba(0,0,0,0.55)'); g.addColorStop(1, 'rgba(0,0,0,0)');
@@ -832,19 +859,42 @@
     else label = mode === 'real' ? 'Ultra charging' : `Ultra charging  ${watt}W`;
     ctx.fillText(label, cx, base1 + S(0.07));
     ctx.textAlign = 'left';
+    ctx.globalAlpha = 1;
   }
 
   function frame(t) {
     const dt = Math.min(0.05, (t - last) / 1000); last = t;
-    update(t, dt); draw(t);
+    update(t, dt);
+    reveal += (revealTarget - reveal) * Math.min(1, dt * 14);
+    draw(t);
     requestAnimationFrame(frame);
   }
+
+  // Swipe up from the lower part of the screen opens the ellipse (to clean board by
+  // about the middle of the screen); swipe down closes it to ~95% dark.
+  // Only the view changes: the charge animation keeps running untouched.
+  let drag = null, dragged = false;
+  C.addEventListener('pointerdown', e => { drag = { id: e.pointerId, y: e.clientY, from: revealTarget }; dragged = false; });
+  C.addEventListener('pointermove', e => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const dy = drag.y - e.clientY;
+    if (!dragged && Math.abs(dy) < 12) return;
+    dragged = true;
+    revealTarget = clamp01(drag.from + dy / (H * 0.45));
+  });
+  const endDrag = e => {
+    if (!drag || e.pointerId !== drag.id) return;
+    drag = null;
+    if (dragged) { try { localStorage.setItem('tdc.reveal', revealTarget.toFixed(3)); } catch (_) {} }
+  };
+  C.addEventListener('pointerup', endDrag);
+  C.addEventListener('pointercancel', endDrag);
 
   // ---------- Settings ----------
   const panel = document.getElementById('panel'), hint = document.getElementById('hint');
   let hintTimer = setTimeout(() => hint.style.opacity = 0, 3500);
   if (NATIVE) { hint.style.display = 'none'; panel.style.display = 'none'; }
-  C.addEventListener('click', () => { if (NATIVE) { window.AndroidBattery.onTap(); return; } panel.classList.toggle('open'); hint.style.opacity = 0; clearTimeout(hintTimer); keepAwake(); });
+  C.addEventListener('click', () => { if (dragged) { dragged = false; return; } if (NATIVE) { window.AndroidBattery.onTap(); return; } panel.classList.toggle('open'); hint.style.opacity = 0; clearTimeout(hintTimer); keepAwake(); });
   document.getElementById('close').addEventListener('click', () => panel.classList.remove('open'));
   function setRunning(on) {
     running = on;
