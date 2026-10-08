@@ -50,6 +50,7 @@ object Scene {
         val colors = Prefs.Slot.values().joinToString("") { slot ->
             Prefs.color(context, slot)?.let { "&${slot.param}=%06x".format(it and 0xFFFFFF) } ?: ""
         }
-        return "file:///android_asset/scene.html?theme=$theme$demoPart$colors"
+        val style = if (Prefs.style(context) == "photo") "&style=photo" else ""
+        return "file:///android_asset/scene.html?theme=$theme$demoPart$colors$style"
     }
 }

@@ -32,6 +32,23 @@ class MainActivity : Activity() {
     private lateinit var autoSwitch: Switch
     private lateinit var themeText: TextView
     private val colorButtons = mutableMapOf<Prefs.Slot, Button>()
+    private lateinit var styleButton: Button
+
+    private val styles = listOf("xray" to "Рентген: телефонът през дисплея", "photo" to "Фото: вътре в батерията (макро)")
+
+    private fun chooseStyle() {
+        val checked = styles.indexOfFirst { it.first == Prefs.style(this) }.coerceAtLeast(0)
+        AlertDialog.Builder(this)
+            .setTitle("Стил")
+            .setSingleChoiceItems(styles.map { it.second }.toTypedArray(), checked) { d, which ->
+                Prefs.setStyle(this, styles[which].first)
+                d.dismiss()
+                refresh()
+                startActivity(ChargingActivity.intent(this, false, "charge"))
+            }
+            .setNegativeButton("Отказ", null)
+            .show()
+    }
 
     private fun dp(v: Int) = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v.toFloat(), resources.displayMetrics).toInt()
 
@@ -49,6 +66,10 @@ class MainActivity : Activity() {
         themeText = text("", 15f)
         col.addView(themeText)
         col.addView(button("Избери тема") { chooseTheme() })
+
+        col.addView(header("Стил"))
+        styleButton = button("") { chooseStyle() }
+        col.addView(styleButton)
 
         col.addView(header("Цветове"))
         for (slot in Prefs.Slot.values()) {
@@ -177,6 +198,7 @@ class MainActivity : Activity() {
 
     private fun refresh() {
         refreshColors()
+        styleButton.text = styles.firstOrNull { it.first == Prefs.style(this) }?.second ?: styles[0].second
         val detected = ThemeCatalog.detect(this)
         val cur = ThemeCatalog.current(this)
         themeText.text = buildString {

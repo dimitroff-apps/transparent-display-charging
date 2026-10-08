@@ -11,6 +11,10 @@ object Prefs {
     fun theme(ctx: Context): String? = sp(ctx).getString("theme", null)
     fun setTheme(ctx: Context, id: String?) = sp(ctx).edit().putString("theme", id).apply()
 
+    /** Look of the scene: "xray" (phone through the display) or "photo" (macro inside the cell) */
+    fun style(ctx: Context): String = sp(ctx).getString("style", "xray") ?: "xray"
+    fun setStyle(ctx: Context, style: String) = sp(ctx).edit().putString("style", style).apply()
+
     /** Colour slots the user can change; null = the default look */
     enum class Slot(val key: String, val param: String) { CHARGE("color_charge", "cc"), DRAIN("color_drain", "dc"), TEXT("color_text", "tc") }
 

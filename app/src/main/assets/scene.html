@@ -115,6 +115,8 @@
   if (hex('cc')) STATES.charge = paletteFrom(hex('cc'));
   if (hex('dc')) STATES.drain = paletteFrom(hex('dc'));
   if (hex('tc')) for (const s of Object.values(STATES)) s.display = hex('tc');
+  // Look: 'xray' = the phone seen through the display, 'photo' = macro shot inside the battery cell
+  const STYLE = params.get('style') === 'photo' ? 'photo' : 'xray';
   const NATIVE = !!window.AndroidBattery;
   const DEMO = params.get('demo');
   let CUT = null; // real punch-hole position from the phone
@@ -231,6 +233,19 @@
       c.fillStyle = 'rgba(255,200,90,0.6)';
       for (let i = 0; i < 5; i++) for (let j = 0; j < 5; j++) c.fillRect(x + sz * (0.22 + i * 0.13), y + sz * (0.22 + j * 0.13), sz * 0.04, sz * 0.04);
       c.strokeStyle = 'rgba(255,255,255,0.18)'; c.lineWidth = 1; rr(c, x, y, sz, sz, S(0.015)); c.stroke();
+      if (STYLE === 'photo') {
+        // Lens glass seen from inside: dark coated glass with reflections
+        const lx = x + sz / 2, ly = y + sz / 2, lr = sz * 0.34;
+        c.beginPath(); c.arc(lx, ly, lr * 1.12, 0, Math.PI * 2); c.fillStyle = metal(c, lx - lr, ly - lr, lr * 2, lr * 2, true); c.fill();
+        const lg = c.createRadialGradient(lx - lr * 0.3, ly - lr * 0.3, lr * 0.05, lx, ly, lr);
+        lg.addColorStop(0, '#3a4a78'); lg.addColorStop(0.35, '#121a33'); lg.addColorStop(0.8, '#05070d'); lg.addColorStop(1, '#1a2240');
+        c.beginPath(); c.arc(lx, ly, lr, 0, Math.PI * 2); c.fillStyle = lg; c.fill();
+        for (const [k, a] of [[0.75, 0.25], [0.5, 0.18], [0.28, 0.3]]) {
+          c.beginPath(); c.arc(lx, ly, lr * k, Math.PI * 1.1, Math.PI * 1.55);
+          c.strokeStyle = `rgba(150,180,255,${a})`; c.lineWidth = Math.max(1, lr * 0.06); c.stroke();
+        }
+        c.beginPath(); c.arc(lx - lr * 0.35, ly - lr * 0.38, lr * 0.12, 0, Math.PI * 2); c.fillStyle = 'rgba(255,255,255,0.55)'; c.fill();
+      }
     }
     if (G.flash) {
       c.beginPath(); c.arc(G.flash.x, G.flash.y, S(0.032), 0, Math.PI * 2);
@@ -296,6 +311,27 @@
     c.strokeStyle = 'rgba(235,175,125,0.32)'; c.lineWidth = 1; c.stroke();
     c.fillStyle = 'rgba(235,175,125,0.14)';
     for (let i = 0; i * S(0.037) < GEO.soc.w + S(0.09); i++) for (let j = 0; j * S(0.037) < GEO.board - GEO.soc.y; j++) c.fillRect(GEO.soc.x - S(0.02) + i * S(0.037), GEO.soc.y + j * S(0.037), 1.2, 1.2);
+
+    if (STYLE === 'photo') {
+      // Studio lighting over the whole board: key light from the upper left, falloff to the lower right
+      c.save(); rr(c, px, py, pw, ph, S(0.1)); c.clip();
+      c.globalCompositeOperation = 'soft-light';
+      const kl = c.createLinearGradient(px, py, px + pw, py + ph);
+      kl.addColorStop(0, 'rgba(255,255,255,0.55)'); kl.addColorStop(0.5, 'rgba(128,128,128,0)'); kl.addColorStop(1, 'rgba(0,0,0,0.6)');
+      c.fillStyle = kl; c.fillRect(px, py, pw, ph);
+      c.globalCompositeOperation = 'source-over';
+      // Cool rim light along the edges, like the blue backlight in a product render
+      const rim = c.createLinearGradient(px, 0, px + pw, 0);
+      rim.addColorStop(0, 'rgba(70,140,255,0.10)'); rim.addColorStop(0.08, 'rgba(70,140,255,0)');
+      rim.addColorStop(0.92, 'rgba(70,140,255,0)'); rim.addColorStop(1, 'rgba(70,140,255,0.12)');
+      c.fillStyle = rim; c.fillRect(px, py, pw, ph);
+      // Film grain
+      for (let i = 0; i < (pw * ph) / 30; i++) {
+        c.fillStyle = rnd() < 0.5 ? 'rgba(255,255,255,0.035)' : 'rgba(0,0,0,0.08)';
+        c.fillRect(px + rnd() * pw, py + rnd() * ph, 1, 1);
+      }
+      c.restore();
+    }
   }
   function pcbDetails(c, x, y, w, h, n) {
     c.lineWidth = 0.8;
@@ -317,7 +353,31 @@
     }
   }
   function shield(c, x, y, w, h, label) {
+    if (STYLE === 'photo') {
+      // Contact shadow on the board
+      c.save(); rr(c, x, y, w, h, S(0.01));
+      c.shadowColor = 'rgba(0,0,0,0.75)'; c.shadowBlur = S(0.035); c.shadowOffsetX = S(0.006); c.shadowOffsetY = S(0.012);
+      c.fillStyle = '#7d8593'; c.fill(); c.restore();
+    }
     rr(c, x, y, w, h, S(0.01)); c.fillStyle = metal(c, x, y, w, h, true); c.fill();
+    if (STYLE === 'photo') {
+      c.save(); rr(c, x, y, w, h, S(0.01)); c.clip();
+      // Brushed stainless: fine horizontal streaks
+      for (let i = 0; i < h; i += 1.2) {
+        c.fillStyle = rnd() < 0.5 ? `rgba(255,255,255,${rnd() * 0.09})` : `rgba(0,0,0,${rnd() * 0.08})`;
+        c.fillRect(x, y + i, w, 0.7);
+      }
+      // Soft reflection band from the key light
+      const sg = c.createLinearGradient(x, y, x + w, y + h);
+      sg.addColorStop(0, 'rgba(255,255,255,0)'); sg.addColorStop(0.32, 'rgba(255,255,255,0.05)');
+      sg.addColorStop(0.42, 'rgba(255,255,255,0.28)'); sg.addColorStop(0.52, 'rgba(255,255,255,0.04)'); sg.addColorStop(1, 'rgba(0,0,0,0.18)');
+      c.fillStyle = sg; c.fillRect(x, y, w, h);
+      // Bevel: lit top-left edge, dark bottom-right edge
+      c.lineWidth = Math.max(1, S(0.004));
+      c.strokeStyle = 'rgba(255,255,255,0.55)'; c.beginPath(); c.moveTo(x, y + h); c.lineTo(x, y); c.lineTo(x + w, y); c.stroke();
+      c.strokeStyle = 'rgba(0,0,0,0.45)'; c.beginPath(); c.moveTo(x + w, y); c.lineTo(x + w, y + h); c.lineTo(x, y + h); c.stroke();
+      c.restore();
+    }
     c.strokeStyle = 'rgba(255,255,255,0.35)'; c.lineWidth = 1; c.stroke();
     rr(c, x + S(0.012), y + S(0.012), w - S(0.024), h - S(0.024), S(0.006)); c.strokeStyle = 'rgba(0,0,0,0.18)'; c.stroke();
     c.fillStyle = 'rgba(40,45,55,0.25)';
@@ -328,7 +388,22 @@
     c.fillText(label, x + S(0.022), y + h - S(0.02));
   }
   function chip(c, x, y, s, label) {
+    if (STYLE === 'photo') {
+      c.save(); rr(c, x, y, s, s, S(0.006));
+      c.shadowColor = 'rgba(0,0,0,0.8)'; c.shadowBlur = S(0.02); c.shadowOffsetY = S(0.008);
+      c.fillStyle = '#16191f'; c.fill(); c.restore();
+      // Silver pads peeking out at the sides
+      c.fillStyle = 'rgba(200,205,215,0.7)';
+      for (let i = 0; i < 5; i++) { c.fillRect(x - S(0.006), y + s * (0.15 + i * 0.17), S(0.006), s * 0.07); c.fillRect(x + s, y + s * (0.15 + i * 0.17), S(0.006), s * 0.07); }
+    }
     rr(c, x, y, s, s, S(0.006)); c.fillStyle = '#16191f'; c.fill();
+    if (STYLE === 'photo') {
+      // Matte epoxy with a faint sheen
+      const eg = c.createLinearGradient(x, y, x + s, y + s);
+      eg.addColorStop(0, 'rgba(255,255,255,0.12)'); eg.addColorStop(0.5, 'rgba(255,255,255,0.02)'); eg.addColorStop(1, 'rgba(0,0,0,0.3)');
+      rr(c, x, y, s, s, S(0.006)); c.fillStyle = eg; c.fill();
+      c.beginPath(); c.arc(x + s * 0.16, y + s * 0.16, s * 0.04, 0, Math.PI * 2); c.fillStyle = 'rgba(255,255,255,0.18)'; c.fill();
+    }
     c.strokeStyle = 'rgba(255,255,255,0.15)'; c.stroke();
     c.fillStyle = 'rgba(255,255,255,0.4)'; c.font = `600 ${S(0.022)}px "Exo 2", sans-serif`;
     c.fillText(label, x + s * 0.22, y + s * 0.62);
@@ -355,14 +430,22 @@
     pathLen = path.len;
     // Discharge: from the battery back to the processor, the modem and the main camera
     const ctr = r => [r.x + r.w / 2, r.y + r.h / 2], [sx, sy] = ctr(GEO.soc), [rx, ry] = ctr(GEO.rf);
+    const [qx, qy] = ctr(GEO.pmic), side = X(0.101), low = Y(0.905);
     drainPaths = [
-      { p: mkPx([[cx765, top], [cx765, hy], [sx, hy], [sx, sy]]), w: 0.5 },
-      { p: mkPx([[cx765, top], [cx765, hy], [rx, hy], [rx, ry]]), w: 0.25 },
-      { p: mkPx([[cx765, top], [cx765, hy], [GEO.main[0], hy], GEO.main]), w: 0.25 }
+      { p: mkPx([[cx765, top], [cx765, hy], [sx, hy], [sx, sy]]), w: 0.32 },
+      { p: mkPx([[cx765, top], [cx765, hy], [rx, hy], [rx, ry]]), w: 0.14 },
+      { p: mkPx([[cx765, top], [cx765, hy], [GEO.main[0], hy], GEO.main]), w: 0.12 },
+      { p: mkPx([[cx765, top], [cx765, hy], [qx, hy], [qx, qy]]), w: 0.1 },
+      // display: up to the display connector under the front camera
+      { p: mkPx([[cx765, top], [cx765, hy], [X(0.5), hy], [X(0.5), Y(0.075)]]), w: 0.12 },
+      // speaker and vibration motor on the bottom board, down the side flex
+      { p: mkPx([[cx765, top], [cx765, hy], [side, hy], [side, low], [X(0.77), low], [X(0.77), Y(0.917)]]), w: 0.1 },
+      { p: mkPx([[cx765, top], [cx765, hy], [side, hy], [side, low], [X(0.2), low]]), w: 0.1 }
     ];
     drainPaths.forEach(d => d.heat = 0);
     buildBase();
     buildMask();
+    if (STYLE === 'photo') buildPhoto();
   }
   let drainPaths = [], GEO = null;
   function mkPx(pts) {
@@ -477,7 +560,7 @@
     const cx = BAT.x + BAT.w / 2, cy = BAT.y + BAT.h / 2;
     // Below the default look the ellipse closes in; above it, it opens past the screen
     const k = reveal <= REVEAL_HOME ? 0.42 + 0.58 * (reveal / REVEAL_HOME) : 1 + 2.2 * (reveal - REVEAL_HOME) / (1 - REVEAL_HOME);
-    const edge = 0.92 + 0.03 * (1 - clamp01(reveal / REVEAL_HOME)), fade = blackness();
+    const edge = 0.92 + 0.03 * (1 - clamp01(reveal / REVEAL_HOME)), fade = blackness() * (1 - 0.85 * introE);
     if (fade > 0.001) {
       ctx.globalAlpha = fade;
       ctx.drawImage(mask, 0, 0, W, H);
@@ -665,10 +748,14 @@
         bubbles.push({ x: ix + Math.random() * iw, y: iy + ih - 2, r: S(0.006 + Math.random() * 0.012), vy: S(0.0015 + Math.random() * 0.003), w: Math.random() * 6.28 });
       }
     }
-    if (draining && !reduceMotion && Math.random() < 0.35 * k * (mode === 'demo' ? Math.min(2, sp) : 1) && rises.length < 60) {
-      const r = Math.random();
-      const di = r < drainPaths[0].w ? 0 : r < drainPaths[0].w + drainPaths[1].w ? 1 : 2;
-      rises.push({ x: ix + Math.random() * iw, y: levelY, di, size: S(0.022 + Math.random() * 0.02), vy: S(0.0025 + Math.random() * 0.002) });
+    const pickDrain = () => { let r = Math.random(), i = 0; while (i < drainPaths.length - 1 && (r -= drainPaths[i].w) > 0) i++; return i; };
+    if (draining && !reduceMotion && Math.random() < 0.45 * k * (mode === 'demo' ? Math.min(2, sp) : 1) && rises.length < 70) {
+      rises.push({ x: ix + Math.random() * iw, y: levelY, di: pickDrain(), size: S(0.022 + Math.random() * 0.02), vy: S(0.0025 + Math.random() * 0.002) });
+    }
+    // The phone keeps running while it charges: part of the charger's power goes straight
+    // from the charge pumps to the processor, modem, cameras, display and speaker
+    if (charging && !reduceMotion && Math.random() < 0.22 * k && drains.length < 60) {
+      drains.push({ d: 0, di: pickDrain(), v: S(0.003 + Math.random() * 0.002), size: S(0.014 + Math.random() * 0.012), off: (Math.random() - 0.5) * S(0.01) });
     }
     const [cx0, cy0] = drainPaths[0].p[0];
     for (let i = rises.length - 1; i >= 0; i--) {
@@ -712,21 +799,277 @@
     }
   }
 
+  // ---------- Photo style: the board stays, the battery shows a macro shot of the cell ----------
+  // Inside the battery: graphite anode | separator | cathode. Lithium ions travel in glowing chains
+  // through the separator: into the anode while charging, back out on battery. The anode glows from
+  // the bottom up to the charge level. The cell is drawn into its own canvas, then into the battery.
+  const PH = { cv: null, back: null, front: null, mask: null, glow: null, glowAt: 0, chains: [], flashes: [], spawn: 0, MW: 1, MH: 1 };
+  const between = (a, b) => a + Math.random() * (b - a);
+  const MARGIN = 0.05; // cell layers are 10% larger than the battery so the slow camera drift never shows an edge
+
+  /** One crystalline granule: faceted, lit from the upper left, blue rim light from behind */
+  function granuleSprite(size, rim) {
+    const cv = document.createElement('canvas'); cv.width = cv.height = size;
+    const g = cv.getContext('2d'), c = size / 2, R = size * 0.46, n = 8 + Math.floor(Math.random() * 6), pts = [];
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + between(-0.22, 0.22), r = R * between(0.7, 1);
+      pts.push([c + Math.cos(a) * r, c + Math.sin(a) * r]);
+    }
+    const pk = [c - R * between(0.05, 0.2), c - R * between(0.08, 0.24)], L = -2.3, base = between(18, 36);
+    const outline = () => { g.beginPath(); pts.forEach((q, i) => i ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1])); g.closePath(); };
+    // A ridge point on the way to every corner splits each face into a top facet and a bevel,
+    // which reads as broken rock rather than a cut gem
+    const mid = pts.map(q => { const k = between(0.4, 0.68); return [pk[0] + (q[0] - pk[0]) * k + between(-0.06, 0.06) * R, pk[1] + (q[1] - pk[1]) * k + between(-0.06, 0.06) * R]; });
+    const face = (poly, lit) => {
+      const v = Math.round(base + 95 * lit * lit + between(-10, 10));
+      g.beginPath(); poly.forEach((q, i) => i ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1])); g.closePath();
+      g.fillStyle = `rgb(${v},${v + 3},${v + 9})`; g.fill();
+      g.strokeStyle = `rgba(255,255,255,${0.02 + 0.12 * lit})`; g.lineWidth = Math.max(0.5, size * 0.004); g.stroke();
+    };
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n, a = pts[i], b = pts[j];
+      const lit = Math.max(0, Math.cos(Math.atan2((a[1] + b[1]) / 2 - pk[1], (a[0] + b[0]) / 2 - pk[0]) - L));
+      face([pk, mid[i], mid[j]], Math.min(1, 0.35 + lit * 0.6 + between(-0.1, 0.1)));
+      face([mid[i], a, b, mid[j]], lit * between(0.55, 0.9));
+    }
+    g.save(); outline(); g.clip();
+    // fine grain on the surface
+    for (let i = 0; i < size * 1.5; i++) {
+      g.fillStyle = Math.random() < 0.5 ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.12)';
+      g.fillRect(Math.random() * size, Math.random() * size, size * 0.012, size * 0.012);
+    }
+    g.globalCompositeOperation = 'lighter';
+    let gr = g.createLinearGradient(size, 0, size * 0.5, 0);
+    gr.addColorStop(0, rgba(rim, 0.8)); gr.addColorStop(1, rgba(rim, 0));
+    g.fillStyle = gr; g.fillRect(0, 0, size, size);
+    const sx = pk[0] - R * 0.12, sy = pk[1] - R * 0.12;
+    gr = g.createRadialGradient(sx, sy, 0, sx, sy, R * 0.28);
+    gr.addColorStop(0, 'rgba(255,255,255,0.22)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, size, size);
+    g.globalCompositeOperation = 'source-over';
+    gr = g.createLinearGradient(0, size, 0, size * 0.5);
+    gr.addColorStop(0, 'rgba(0,0,0,0.6)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, size, size);
+    g.restore();
+    outline(); g.strokeStyle = 'rgba(0,0,0,0.5)'; g.lineWidth = Math.max(1, size * 0.01); g.stroke();
+    return cv;
+  }
+
+  function layer(scale) {
+    const { MW, MH } = PH, cv = document.createElement('canvas');
+    cv.width = Math.round(MW * (1 + 2 * MARGIN) * dpr * scale); cv.height = Math.round(MH * (1 + 2 * MARGIN) * dpr * scale);
+    const c = cv.getContext('2d');
+    c.setTransform(dpr * scale, 0, 0, dpr * scale, MW * MARGIN * dpr * scale, MH * MARGIN * dpr * scale);
+    return [cv, c];
+  }
+
+  function buildPhoto() {
+    PH.MW = BAT.iw; PH.MH = BAT.ih;
+    const MW = PH.MW, MH = PH.MH;
+    PH.cv = document.createElement('canvas'); PH.cv.width = Math.round(MW * dpr); PH.cv.height = Math.round(MH * dpr);
+    const sprites = [];
+    for (let i = 0; i < 18; i++) sprites.push(granuleSprite(160, [90, 170, 255]));
+    const pick = () => sprites[Math.floor(Math.random() * sprites.length)];
+    const [back, b] = layer(1), [mask, m] = layer(0.5), [front, f] = layer(1);
+    const x0 = -MW * MARGIN, y0 = -MH * MARGIN, w0 = MW * (1 + 2 * MARGIN), h0 = MH * (1 + 2 * MARGIN);
+
+    // Deep background with soft out-of-focus lights
+    let gr = b.createLinearGradient(0, y0, 0, y0 + h0);
+    gr.addColorStop(0, '#04070d'); gr.addColorStop(0.5, '#0a1322'); gr.addColorStop(1, '#03050a');
+    b.fillStyle = gr; b.fillRect(x0, y0, w0, h0);
+    b.filter = `blur(${Math.round(MW * 0.03)}px)`;
+    for (let i = 0; i < 22; i++) {
+      b.fillStyle = Math.random() < 0.7 ? `rgba(70,140,255,${between(0.05, 0.14)})` : `rgba(255,150,70,${between(0.04, 0.1)})`;
+      b.beginPath(); b.arc(between(x0, x0 + w0), between(y0, y0 + h0), MW * between(0.03, 0.1), 0, Math.PI * 2); b.fill();
+    }
+    b.filter = 'none';
+
+    // Current collectors: brushed copper (anode side) and aluminium (cathode side)
+    const foil = (x, w, c1, c2) => {
+      const fg = b.createLinearGradient(x, 0, x + w, 0);
+      fg.addColorStop(0, c1); fg.addColorStop(0.5, c2); fg.addColorStop(1, c1);
+      b.fillStyle = fg; b.fillRect(x, y0, w, h0);
+      for (let i = 0; i < 120; i++) {
+        b.fillStyle = Math.random() < 0.5 ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.18)';
+        b.fillRect(x + Math.random() * w, y0, Math.max(0.6, MW * 0.0015), h0);
+      }
+    };
+    foil(x0, MW * 0.1, '#3a1d0c', '#a8612e');
+    foil(MW * 0.95, MW * 0.1, '#2a2e35', '#9aa3ad');
+
+    // Far granules: smaller, darker and out of focus, packed so no background shows through
+    const scatter = (c, n, xa, xb, sa, sb) => {
+      for (let i = 0; i < n; i++) {
+        const s = MW * between(sa, sb);
+        c.drawImage(pick(), between(xa, xb) - s / 2, between(y0, y0 + h0) - s / 2, s, s);
+      }
+    };
+    b.filter = `blur(${Math.max(1, Math.round(MW * 0.004))}px) brightness(0.4)`;
+    scatter(b, 420, x0, MW * 0.45, 0.035, 0.07);
+    scatter(b, 420, MW * 0.55, x0 + w0, 0.035, 0.07);
+    b.filter = 'none';
+
+    // Separator: white fibrous membrane down the middle
+    gr = b.createLinearGradient(MW * 0.41, 0, MW * 0.59, 0);
+    gr.addColorStop(0, 'rgba(225,232,245,0)'); gr.addColorStop(0.5, 'rgba(225,232,245,0.2)'); gr.addColorStop(1, 'rgba(225,232,245,0)');
+    b.fillStyle = gr; b.fillRect(MW * 0.41, y0, MW * 0.18, h0);
+    for (let i = 0; i < 900; i++) {
+      const sx = MW * (0.5 + between(-0.075, 0.075) * (0.6 + 0.4 * Math.random())), sy = between(y0, y0 + h0), len = MH * between(0.03, 0.2);
+      b.beginPath(); b.moveTo(sx, sy);
+      b.bezierCurveTo(sx + MW * between(-0.03, 0.03), sy + len * 0.33, sx + MW * between(-0.03, 0.03), sy + len * 0.66, sx + MW * between(-0.02, 0.02), sy + len);
+      b.strokeStyle = `rgba(238,243,252,${between(0.03, 0.2)})`; b.lineWidth = between(0.4, 1.2); b.stroke();
+    }
+
+    // Near granules: sharp and densely packed; the anode ones also go into the mask that glows with the charge
+    for (const [xa, xb, anode] of [[x0, MW * 0.43, true], [MW * 0.57, x0 + w0, false]]) {
+      for (let i = 0; i < 360; i++) {
+        const s = MW * between(0.05, 0.11), sp = pick(), gx = between(xa, xb) - s / 2, gy = between(y0, y0 + h0) - s / 2;
+        b.drawImage(sp, gx, gy, s, s);
+        if (anode) m.drawImage(sp, gx, gy, s, s);
+      }
+    }
+
+    // Foreground: a few big, very blurred granules at the sides for depth of field
+    f.filter = `blur(${Math.round(MW * 0.016)}px) brightness(0.75)`;
+    f.globalAlpha = 0.55;
+    for (let i = 0; i < 4; i++) {
+      const s = MW * between(0.2, 0.3), side = i % 2 ? MW * between(0.9, 1.02) : MW * between(-0.02, 0.1);
+      f.drawImage(pick(), side - s / 2, between(y0, y0 + h0) - s / 2, s, s);
+    }
+    f.filter = 'none'; f.globalAlpha = 1;
+    gr = f.createRadialGradient(MW / 2, MH / 2, Math.min(MW, MH) * 0.3, MW / 2, MH / 2, Math.max(MW, MH) * 0.75);
+    gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(0,0,0,0.65)');
+    f.fillStyle = gr; f.fillRect(x0, y0, w0, h0);
+
+    const glow = document.createElement('canvas'); glow.width = mask.width; glow.height = mask.height;
+    Object.assign(PH, { back, front, mask, glow, glowAt: 0, chains: [], flashes: [] });
+  }
+
+  /** Anode granules glow from the bottom up to the charge level */
+  function buildGlow(th) {
+    const { MW, MH } = PH, c = PH.glow.getContext('2d'), s = 0.5;
+    c.setTransform(1, 0, 0, 1, 0, 0); c.globalCompositeOperation = 'source-over';
+    c.clearRect(0, 0, PH.glow.width, PH.glow.height);
+    c.setTransform(dpr * s, 0, 0, dpr * s, MW * MARGIN * dpr * s, MH * MARGIN * dpr * s);
+    const ly = MH * (1 - p / 100), gr = c.createLinearGradient(0, ly - MH * 0.02, 0, MH * (1 + MARGIN));
+    gr.addColorStop(0, rgba(th.bright, 0)); gr.addColorStop(0.03, rgba(th.bright, 0.95));
+    gr.addColorStop(0.1, rgba(th.hot, 0.7)); gr.addColorStop(1, rgba(th.deep, 0.5));
+    c.fillStyle = gr; c.fillRect(-MW * MARGIN, ly - MH * 0.02, MW * 0.6, MH * 1.2);
+    c.setTransform(1, 0, 0, 1, 0, 0); c.globalCompositeOperation = 'destination-in';
+    c.drawImage(PH.mask, 0, 0);
+    c.globalCompositeOperation = 'source-over';
+  }
+
+  function updatePhoto(t, dt) {
+    const { MW, MH } = PH, charging = isCharging(), draining = isDraining(), sp = mode === 'demo' ? speed : 1;
+    const rate = reduceMotion ? 0.3 : charging ? 0.9 + Math.min(3.5, watt / 30) : draining ? 0.45 : 0.06;
+    PH.spawn = Math.min(1.5, PH.spawn + rate * dt * sp);
+    while (PH.spawn >= 1 && PH.chains.length < 26) {
+      PH.spawn -= 1;
+      const into = charging || !draining, depth = Math.random() < 0.35 ? between(0.45, 0.65) : 1, n = 3 + Math.floor(Math.random() * 5);
+      PH.chains.push({
+        dir: into ? -1 : 1, x: into ? MW * between(0.82, 1.0) : MW * between(0.0, 0.18), end: into ? MW * between(0.08, 0.36) : MW * between(0.64, 0.92),
+        y: MH * between(0.04, 0.97), v: MW * between(0.1, 0.17) * (into ? 1 : 0.6) * (charging ? 0.7 + Math.min(1.2, watt / 80) : 0.6),
+        n, gap: MW * between(0.045, 0.07) * depth, ph: between(0, 6.28), amp: MH * between(0.004, 0.012), depth, absorbed: 0
+      });
+    }
+    for (let i = PH.chains.length - 1; i >= 0; i--) {
+      const c = PH.chains[i];
+      c.x += c.dir * c.v * dt * sp;
+      // Beads trail behind the head; each one that reaches its granule flashes and is absorbed
+      while (c.absorbed < c.n && c.dir * ((c.x - c.dir * c.absorbed * c.gap) - c.end) > 0) {
+        PH.flashes.push({ x: c.end, y: c.y + Math.sin(t / 500 + c.ph + c.absorbed * 0.9) * c.amp, life: 1, depth: c.depth });
+        c.absorbed++;
+      }
+      if (c.absorbed >= c.n) PH.chains.splice(i, 1);
+    }
+    for (let i = PH.flashes.length - 1; i >= 0; i--) { PH.flashes[i].life -= dt * 1.6; if (PH.flashes[i].life <= 0) PH.flashes.splice(i, 1); }
+  }
+
+  /** Renders the cell into PH.cv (battery-sized) */
+  function drawCell(t) {
+    const { MW, MH } = PH, m = PH.cv.getContext('2d'), ts = t / 1000, th = theme, charging = isCharging();
+    const ox = Math.sin(ts * 0.11) * MW * 0.012, oy = Math.cos(ts * 0.08) * MH * 0.01;
+    const lx = -MW * MARGIN + ox * 0.6, ly = -MH * MARGIN + oy * 0.6, lw = MW * (1 + 2 * MARGIN), lh = MH * (1 + 2 * MARGIN);
+    m.setTransform(dpr, 0, 0, dpr, 0, 0);
+    m.globalCompositeOperation = 'source-over'; m.globalAlpha = 1;
+    m.drawImage(PH.back, lx, ly, lw, lh);
+    if (t - PH.glowAt > 90) { PH.glowAt = t; buildGlow(th); }
+    // Stored lithium: a soft light in the gaps of the anode plus a faint tint on the granules
+    m.globalCompositeOperation = 'lighter';
+    const lvY = MH * (1 - p / 100) + oy * 0.6;
+    let g = m.createLinearGradient(0, lvY - MH * 0.03, 0, MH);
+    g.addColorStop(0, rgba(th.hot, 0)); g.addColorStop(0.06, rgba(th.hot, 0.2)); g.addColorStop(1, rgba(th.deep, 0.12));
+    m.fillStyle = g; m.fillRect(0, lvY - MH * 0.03, MW * 0.47, MH);
+    m.globalAlpha = 0.3 + (charging ? 0.06 * Math.sin(ts * 3) : 0);
+    m.drawImage(PH.glow, lx, ly, lw, lh);
+    m.globalAlpha = 1;
+
+    m.save(); m.translate(ox * 0.6, oy * 0.6);
+    // Warm heat around the separator while current flows
+    const heat = charging ? 0.07 + Math.min(0.08, watt / 1500) : isDraining() ? 0.03 : 0.01;
+    g = m.createRadialGradient(MW / 2, MH / 2, 0, MW / 2, MH / 2, MW * 0.55);
+    g.addColorStop(0, rgba(th.hot, heat)); g.addColorStop(1, rgba(th.hot, 0));
+    m.fillStyle = g; m.fillRect(0, 0, MW, MH);
+    // Ion chains: a thread of light with beads that light up the granules around them
+    for (const c of PH.chains) {
+      const pts = [];
+      for (let i = c.absorbed; i < c.n; i++) {
+        const bx = c.x - c.dir * i * c.gap, by = c.y + Math.sin(ts * 2 + c.ph + i * 0.9) * c.amp;
+        pts.push([bx, by, clamp01((c.dir < 0 ? MW * 1.02 - bx : bx + MW * 0.02) / (MW * 0.1))]);
+      }
+      if (pts.length > 1) {
+        m.beginPath(); pts.forEach(([x, y], i) => i ? m.lineTo(x, y) : m.moveTo(x, y));
+        m.strokeStyle = rgba(th.flow, 0.28 * c.depth); m.lineWidth = Math.max(1, MW * 0.005 * c.depth); m.stroke();
+      }
+      for (const [x, y, a] of pts) {
+        const halo = MW * 0.11 * c.depth, core = MW * 0.045 * c.depth, dot = MW * 0.016 * c.depth;
+        m.globalAlpha = 0.16 * a * c.depth; m.drawImage(spr.flow, x - halo, y - halo, halo * 2, halo * 2);
+        m.globalAlpha = a; m.drawImage(spr.flow, x - core / 2, y - core / 2, core, core);
+        m.drawImage(spr.flow, x - dot / 2, y - dot / 2, dot, dot);
+      }
+    }
+    for (const q of PH.flashes) {
+      const r = MW * (0.03 + 0.07 * (1 - q.life)) * q.depth;
+      m.globalAlpha = q.life * 0.8; m.drawImage(spr.flow, q.x - r, q.y - r, r * 2, r * 2);
+    }
+    m.globalAlpha = 1;
+    m.restore();
+
+    m.globalCompositeOperation = 'source-over';
+    m.drawImage(PH.front, -MW * MARGIN + ox * 1.6, -MH * MARGIN + oy * 1.6, lw, lh);
+  }
+
+  // ---------- Photo style: camera flies into the battery when the view opens, then back out ----------
+  let introStart = -1, introE = 0;
+  const easeInOut = x => x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+  function introAt(t) {
+    if (STYLE !== 'photo' || reduceMotion) return 0;
+    if (introStart < 0) introStart = t;
+    const s = (t - introStart) / 1000;
+    if (s < 0.6) return 0;
+    if (s < 2.2) return easeInOut((s - 0.6) / 1.6);
+    if (s < 3.6) return 1;
+    if (s < 5.4) return 1 - easeInOut((s - 3.6) / 1.8);
+    return 0;
+  }
+
   // ---------- Per-frame drawing ----------
-  function draw(t) {
+  function drawXray(t) {
     const ts = t / 1000, th = theme, charging = isCharging();
     ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
     ctx.drawImage(base, 0, 0, W, H);
+    const draining = isDraining(), powered = draining || charging;
 
     // Glowing current path
     ctx.globalCompositeOperation = 'lighter';
     ctx.beginPath(); path.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
     ctx.lineJoin = 'round'; ctx.lineCap = 'round';
     ctx.strokeStyle = rgba(th.flow, charging ? 0.22 + 0.06 * Math.sin(ts * 4) : 0.04); ctx.lineWidth = S(0.012); ctx.stroke();
-    const draining = isDraining();
     for (const dp of drainPaths) {
       ctx.beginPath(); dp.p.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
-      ctx.strokeStyle = rgba(th.flow, draining ? 0.1 + 0.03 * Math.sin(ts * 2) : 0.03); ctx.lineWidth = S(0.008); ctx.stroke();
+      ctx.strokeStyle = rgba(th.flow, draining ? 0.1 + 0.03 * Math.sin(ts * 2) : powered ? 0.06 + 0.02 * Math.sin(ts * 2) : 0.03);
+      ctx.lineWidth = S(0.008); ctx.stroke();
       const [ex, ey] = dp.p[dp.p.length - 1], rad = S(0.05 + 0.07 * dp.heat);
       const hg = ctx.createRadialGradient(ex, ey, 0, ex, ey, rad);
       hg.addColorStop(0, rgba(th.hot, 0.15 + 0.45 * dp.heat)); hg.addColorStop(1, rgba(th.hot, 0));
@@ -742,7 +1085,12 @@
     ctx.fillStyle = rgba(th.glass, 0.05); ctx.fill();
 
     ctx.save(); rr(ctx, ix, iy, iw, ih, S(0.02)); ctx.clip();
-    const amp = Math.min(S(0.012), ih * 0.012) * (charging ? 1 : 0.3);
+    if (STYLE === 'photo') {
+      // Photo style: a macro shot of the cell instead of the glowing plates
+      drawCell(t);
+      ctx.drawImage(PH.cv, ix, iy, iw, ih);
+    } else {
+    const amp =Math.min(S(0.012), ih * 0.012) * (charging ? 1 : 0.3);
     const wave = i => Math.sin(ts * 2.6 + i * 0.7) * amp;
     const lit = ctx.createLinearGradient(0, levelY, 0, iy + ih);
     lit.addColorStop(0, rgba(th.bright, 0.95)); lit.addColorStop(0.08, rgba(th.hot, 0.92)); lit.addColorStop(0.45, rgba(th.deep, 0.9)); lit.addColorStop(1, rgba(mix(th.deep, [0, 0, 0], 0.4), 0.9));
@@ -768,6 +1116,7 @@
     ctx.globalAlpha = 1;
     for (const q of rises) ctx.drawImage(spr.blue, q.x - q.size / 2, q.y - q.size / 2, q.size, q.size);
     ctx.globalAlpha = 1;
+    }
     ctx.restore();
 
     // Battery glass shell
@@ -808,6 +1157,21 @@
       ctx.drawImage(spr.flow, fx + (horiz ? 0 : q.off) - q.size / 2, fy + (horiz ? q.off : 0) - q.size / 2, q.size, q.size);
     }
     ctx.globalCompositeOperation = 'source-over';
+  }
+
+  function draw(t) {
+    const th = theme;
+    let g;
+    // Photo style opens with a fly-in: the camera moves into the battery and back out
+    introE = introAt(t);
+    if (introE > 0) {
+      const bx = BAT.x + BAT.w / 2, by = BAT.y + BAT.h / 2, z = 1 + (Math.min(W * 0.98 / BAT.w, H * 0.95 / BAT.h) - 1) * introE;
+      ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+      ctx.save();
+      ctx.translate(bx + (W / 2 - bx) * introE, by + (H / 2 - by) * introE); ctx.scale(z, z); ctx.translate(-bx, -by);
+      drawXray(t);
+      ctx.restore();
+    } else drawXray(t);
 
     // ----- Display glass on top (fades out with the black display) -----
     const black = blackness();
@@ -873,6 +1237,7 @@
   function frame(t) {
     const dt = Math.min(0.05, (t - last) / 1000); last = t;
     update(t, dt);
+    if (STYLE === 'photo') updatePhoto(t, dt);
     reveal += (revealTarget - reveal) * Math.min(1, dt * 14);
     draw(t);
     requestAnimationFrame(frame);
