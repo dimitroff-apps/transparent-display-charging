@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="bg">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Transparent Display Charging</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;500&family=Exo+2:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    --bg: #000;
+    --ink: #e9f1ff;
+    --muted: rgba(233, 241, 255, 0.62);
+    --panel: rgba(10, 14, 24, 0.94);
+    --btn: rgba(255, 255, 255, 0.08);
+    --line: rgba(160, 200, 255, 0.18);
+    --disp: 120, 255, 190;
+  }
+  /* The scene is a dark X-ray view in both system themes */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg: #000; --ink: #e9f1ff; --panel: rgba(10, 14, 24, 0.94); }
+  }
+  :root[data-theme="dark"] { --bg: #000; --ink: #e9f1ff; --panel: rgba(10, 14, 24, 0.94); }
+
+  html, body { height: 100%; margin: 0; }
+  html { background: var(--bg); scroll-padding-top: env(safe-area-inset-top, 0px); }
+  body {
+    background: var(--bg); color: var(--ink); overflow: hidden;
+    font-family: 'Exo 2', 'Segoe UI', Roboto, sans-serif;
+    -webkit-tap-highlight-color: transparent; user-select: none;
+  }
+  #scene { position: fixed; top: 0; left: 0; display: block; }
+  #hint {
+    position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
+    font-size: 14px; color: var(--muted); background: rgba(0, 0, 0, 0.55); padding: 6px 12px; border-radius: 999px;
+    transition: opacity 0.6s; pointer-events: none; white-space: nowrap;
+  }
+  #panel {
+    position: fixed; left: 50%; bottom: 0;
+    transform: translate(-50%, 110%);
+    width: min(440px, calc(100% - 16px));
+    padding: 16px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+    box-sizing: border-box;
+    background: var(--panel); border: 1px solid var(--line); border-bottom: 0;
+    border-radius: 18px 18px 0 0;
+    transition: transform 0.3s cubic-bezier(.2, .8, .2, 1);
+  }
+  #panel.open { transform: translate(-50%, 0); }
+  .row { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+  .row:last-child { margin-bottom: 0; }
+  button {
+    flex: 1; font: inherit; font-weight: 600; font-size: 15px; color: var(--ink);
+    background: var(--btn); border: 0; border-radius: 10px; padding: 10px; cursor: pointer;
+  }
+  button.on { background: rgb(var(--disp)); color: #04110a; }
+  button:focus-visible, input:focus-visible { outline: 2px solid rgb(var(--disp)); outline-offset: 2px; }
+  .speed { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); width: 100%; }
+  .speed input { flex: 1; accent-color: rgb(var(--disp)); }
+  #spd { width: 2.6em; text-align: right; }
+  #status { font-size: 14px; color: var(--muted); margin: 0 0 12px; min-height: 1.2em; }
+  .chips { justify-content: center; gap: 14px; }
+  .chip {
+    flex: 0 0 34px; width: 34px; height: 34px; padding: 0; border-radius: 50%;
+    background: linear-gradient(135deg, var(--a), var(--b));
+    border: 2px solid transparent; box-shadow: 0 0 0 1px var(--line);
+  }
+  .chip.on { border-color: #fff; box-shadow: 0 0 14px var(--b); }
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+<div id="hint">Докосни за настройки</div>
+
+<div id="panel" role="dialog" aria-label="Настройки">
+  <div class="row">
+    <button id="mCharge" class="on">Демо зареждане</button>
+    <button id="mDrain">Демо разреждане</button>
+  </div>
+  <div class="row"><button id="mReal">Моята батерия</button></div>
+  <p id="status">Симулирано зареждане от 40% до 99.999%</p>
+  <div class="row">
+    <button id="pause">Пауза</button>
+    <button id="restart">Отначало</button>
+  </div>
+  <div class="row" id="speedRow">
+    <label class="speed">Скорост <input id="speed" type="range" min="0.25" max="4" step="0.25" value="1"><span id="spd">1×</span></label>
+  </div>
+  <div class="row"><button id="close">Затвори</button></div>
+</div>
+
+<script>
+(() => {
+  // Colours follow the state: green while charging, orange on battery, red under 20%
+  const STATES = {
+    charge: { flow: [160, 255, 150], particle: [130, 255, 185], deep: [0, 90, 45],   hot: [110, 255, 140], glass: [100, 255, 170], display: [125, 255, 165] },
+    drain:  { flow: [255, 180, 70],  particle: [255, 205, 120], deep: [170, 55, 5],  hot: [255, 160, 40],  glass: [255, 165, 90],  display: [255, 190, 100] },
+    low:    { flow: [255, 95, 80],   particle: [255, 145, 130], deep: [130, 8, 12],  hot: [255, 70, 55],   glass: [255, 105, 100], display: [255, 115, 100] }
+  };
+  const rgba = (c, a) => `rgba(${Math.round(c[0])},${Math.round(c[1])},${Math.round(c[2])},${a})`;
+  const mix = (a, b, k) => a.map((v, i) => Math.round(v + (b[i] - v) * k));
+  const WHITE = [255, 255, 255];
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const params = new URLSearchParams(location.search);
+  const NATIVE = !!window.AndroidBattery;
+  const DEMO = params.get('demo');
+  let CUT = null; // real punch-hole position from the phone
+  window.setCutout = (x, y, r) => { CUT = { x, y, r }; };
+
+  const C = document.getElementById('scene');
+  const ctx = C.getContext('2d');
+  const base = document.createElement('canvas');
+  let W = 0, H = 0, dpr = 1;
+  let px = 0, py = 0, pw = 0, ph = 0; // phone rectangle (the whole screen on a phone)
+  const X = f => px + f * pw, Y = f => py + f * ph, S = f => f * pw;
+  let theme, spr = {};
+
+  function rr(c, x, y, w, h, r) {
+    c.beginPath();
+    if (c.roundRect) { c.roundRect(x, y, w, h, r); return; }
+    c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r);
+    c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
+  }
+  function metal(c, x, y, w, h, light) {
+    const g = c.createLinearGradient(x, y, x + w, y + h);
+    g.addColorStop(0, light ? '#c9d0da' : '#7d8593');
+    g.addColorStop(0.45, light ? '#8f98a6' : '#555d6a');
+    g.addColorStop(1, light ? '#aab2bf' : '#3d434e');
+    return g;
+  }
+
+  // Seeded random so the board looks the same after every resize
+  let seed = 7;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+
+  // ---------- Static layer: frame, boards and parts (front view, as if through the display) ----------
+  function buildBase() {
+    base.width = W * dpr; base.height = H * dpr;
+    const c = base.getContext('2d');
+    c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    c.fillStyle = '#000'; c.fillRect(0, 0, W, H);
+    seed = 7;
+
+    // Mid-frame
+    rr(c, px, py, pw, ph, S(0.1));
+    let g = c.createLinearGradient(px, py, px + pw, py + ph);
+    g.addColorStop(0, '#1c1f26'); g.addColorStop(0.5, '#121418'); g.addColorStop(1, '#0b0c0f');
+    c.fillStyle = g; c.fill();
+    c.save(); c.clip();
+    for (let i = 0; i < 260; i++) {
+      c.fillStyle = `rgba(255,255,255,${0.01 + rnd() * 0.02})`;
+      c.fillRect(px, py + rnd() * ph, pw, 0.6);
+    }
+    c.restore();
+    rr(c, X(0.022), Y(0.012), pw * 0.956, ph * 0.976, S(0.08));
+    c.strokeStyle = 'rgba(255,255,255,0.07)'; c.lineWidth = 1; c.stroke();
+
+    // Wireless charging coil, seen behind the glass battery
+    const ccx = X(0.5), ccy = Y(0.58);
+    c.beginPath(); c.arc(ccx, ccy, S(0.33), 0, Math.PI * 2); c.fillStyle = 'rgba(0,0,0,0.45)'; c.fill();
+    c.lineWidth = Math.max(1, S(0.006));
+    for (let r = S(0.07); r < S(0.31); r += S(0.013)) {
+      c.beginPath(); c.arc(ccx, ccy, r, 0, Math.PI * 2);
+      c.strokeStyle = 'rgba(205,125,60,0.3)'; c.stroke();
+    }
+
+    // Main flex cable along the side
+    const fx = X(0.088), fw = S(0.026);
+    c.fillStyle = 'rgba(205,125,35,0.85)'; c.fillRect(fx, Y(0.27), fw, Y(0.89) - Y(0.27));
+    c.strokeStyle = 'rgba(255,205,130,0.55)'; c.lineWidth = 0.8;
+    for (let j = 1; j < 4; j++) { c.beginPath(); c.moveTo(fx + fw * j / 4, Y(0.27)); c.lineTo(fx + fw * j / 4, Y(0.89)); c.stroke(); }
+
+    // Main board (cut out around the rear cameras)
+    const bx0 = X(0.03), by0 = Y(0.018), bw0 = pw * 0.94, bh0 = Y(0.305) - by0;
+    const camX = X(0.53), camY = Y(0.04), camW = X(0.955) - camX, camH = Y(0.235) - camY;
+    c.beginPath();
+    if (c.roundRect) { c.roundRect(bx0, by0, bw0, bh0, S(0.06)); c.roundRect(camX, camY, camW, camH, S(0.04)); }
+    else { c.rect(bx0, by0, bw0, bh0); c.rect(camX, camY, camW, camH); }
+    c.fillStyle = '#0b1626'; c.fill('evenodd');
+    c.save(); c.clip('evenodd');
+    pcbDetails(c, bx0, by0, bw0, bh0, 70);
+    c.restore();
+
+    // Rear camera modules (mirrored, seen from the front)
+    const cams = [
+      { x: 0.745, y: 0.05, s: 0.19, big: true },
+      { x: 0.555, y: 0.055, s: 0.16 },
+      { x: 0.755, y: 0.145, s: 0.16 }
+    ];
+    for (const m of cams) {
+      const x = X(m.x), y = Y(m.y), s = S(m.s);
+      c.fillStyle = 'rgba(210,125,40,0.85)'; c.fillRect(x - S(0.05), y + s * 0.4, S(0.06), s * 0.22);
+      rr(c, x, y, s, s, S(0.015)); c.fillStyle = metal(c, x, y, s, s, false); c.fill();
+      rr(c, x + s * 0.14, y + s * 0.14, s * 0.72, s * 0.72, S(0.008)); c.fillStyle = '#0d1016'; c.fill();
+      c.fillStyle = 'rgba(255,200,90,0.6)';
+      for (let i = 0; i < 5; i++) for (let j = 0; j < 5; j++) c.fillRect(x + s * (0.22 + i * 0.13), y + s * (0.22 + j * 0.13), s * 0.04, s * 0.04);
+      c.strokeStyle = 'rgba(255,255,255,0.18)'; c.lineWidth = 1; rr(c, x, y, s, s, S(0.015)); c.stroke();
+    }
+    c.beginPath(); c.arc(X(0.635), Y(0.185), S(0.035), 0, Math.PI * 2);
+    c.fillStyle = metal(c, X(0.6), Y(0.17), S(0.07), S(0.07), true); c.fill();
+    c.beginPath(); c.arc(X(0.635), Y(0.185), S(0.022), 0, Math.PI * 2); c.fillStyle = '#e8d9a8'; c.fill();
+
+    // Shield cans and chips
+    shield(c, X(0.1), Y(0.07), S(0.36), S(0.27), 'SM8750');
+    shield(c, X(0.1), Y(0.205), S(0.2), S(0.1), 'RF');
+    shield(c, X(0.33), Y(0.205), S(0.17), S(0.1), 'PMIC');
+    chip(c, X(0.54), Y(0.248), S(0.065), 'CP');
+    chip(c, X(0.62), Y(0.248), S(0.065), 'CP');
+    // Battery board-to-board connector
+    rr(c, X(0.70), Y(0.272), S(0.13), S(0.045), S(0.008)); c.fillStyle = '#121418'; c.fill();
+    c.fillStyle = 'rgba(255,205,100,0.85)';
+    for (let i = 0; i < 9; i++) c.fillRect(X(0.71) + i * S(0.0125), Y(0.272) + S(0.012), S(0.005), S(0.02));
+    // Earpiece and front camera
+    rr(c, X(0.36), Y(0.004), S(0.28), S(0.02), S(0.01)); c.fillStyle = '#08090c'; c.fill();
+    c.fillStyle = 'rgba(255,255,255,0.12)';
+    for (let i = 0; i < 26; i++) c.fillRect(X(0.37) + i * S(0.01), Y(0.004) + S(0.007), S(0.004), S(0.006));
+    const fcx = X(0.5), fcy = Y(0.04), fs = S(0.11);
+    c.fillStyle = 'rgba(210,125,40,0.85)'; c.fillRect(fcx - S(0.02), fcy + fs / 2, S(0.04), S(0.03));
+
+    // Battery flex up to the connector
+    c.fillStyle = 'rgba(210,130,40,0.9)'; c.fillRect(X(0.725), Y(0.29), S(0.08), Y(0.335) - Y(0.29));
+    c.strokeStyle = 'rgba(255,215,140,0.6)';
+    for (let j = 1; j < 4; j++) { c.beginPath(); c.moveTo(X(0.725) + S(0.02) * j, Y(0.29)); c.lineTo(X(0.725) + S(0.02) * j, Y(0.335)); c.stroke(); }
+
+    // Bottom sub-board
+    const sx = X(0.03), sy = Y(0.85), sw = pw * 0.94, sh = Y(0.988) - sy;
+    rr(c, sx, sy, sw, sh, S(0.06)); c.fillStyle = '#0b1626'; c.fill();
+    c.save(); rr(c, sx, sy, sw, sh, S(0.06)); c.clip(); pcbDetails(c, sx, sy, sw, sh, 24); c.restore();
+    // Speaker box
+    rr(c, X(0.6), Y(0.862), S(0.34), Y(0.972) - Y(0.862), S(0.02)); c.fillStyle = '#0a0b0e'; c.fill();
+    c.fillStyle = 'rgba(255,255,255,0.08)';
+    for (let i = 0; i < 12; i++) for (let j = 0; j < 7; j++) {
+      c.beginPath(); c.arc(X(0.63) + i * S(0.025), Y(0.874) + j * S(0.026), S(0.006), 0, Math.PI * 2); c.fill();
+    }
+    // Vibration motor
+    rr(c, X(0.08), Y(0.866), S(0.24), S(0.08), S(0.04)); c.fillStyle = metal(c, X(0.08), Y(0.866), S(0.24), S(0.08), true); c.fill();
+    c.fillStyle = 'rgba(20,24,30,0.55)'; c.font = `600 ${S(0.024)}px "Exo 2", sans-serif`; c.fillText('X-axis', X(0.14), Y(0.866) + S(0.05));
+    // SIM tray
+    rr(c, X(0.07), Y(0.958), S(0.3), S(0.034), S(0.017)); c.fillStyle = metal(c, X(0.07), Y(0.958), S(0.3), S(0.034), true); c.fill();
+    // USB-C port
+    const ux = X(0.5) - S(0.1), uy = Y(0.948), uw = S(0.2), uh = Y(0.996) - uy;
+    rr(c, ux, uy, uw, uh, S(0.012));
+    let ug = c.createLinearGradient(ux, 0, ux + uw, 0);
+    ug.addColorStop(0, '#6f7784'); ug.addColorStop(0.5, '#cfd5de'); ug.addColorStop(1, '#6f7784');
+    c.fillStyle = ug; c.fill();
+    c.fillStyle = 'rgba(0,0,0,0.25)'; c.fillRect(ux + S(0.015), uy + uh * 0.45, uw - S(0.03), 1);
+    c.fillStyle = 'rgba(255,255,255,0.35)'; c.fillRect(ux + S(0.015), uy + S(0.006), uw - S(0.03), 1);
+
+    // Vapor chamber, a thin copper sheet just under the display
+    rr(c, X(0.06), Y(0.05), S(0.47), Y(0.31) - Y(0.05), S(0.03));
+    c.fillStyle = 'rgba(205,140,90,0.10)'; c.fill();
+    c.strokeStyle = 'rgba(235,175,125,0.32)'; c.lineWidth = 1; c.stroke();
+    c.fillStyle = 'rgba(235,175,125,0.14)';
+    for (let i = 0; i < 12; i++) for (let j = 0; j < 14; j++) c.fillRect(X(0.08) + i * S(0.037), Y(0.06) + j * S(0.037), 1.2, 1.2);
+  }
+  function pcbDetails(c, x, y, w, h, n) {
+    c.lineWidth = 0.8;
+    for (let i = 0; i < n; i++) {
+      let tx = x + rnd() * w, ty = y + rnd() * h;
+      c.strokeStyle = `rgba(210,170,80,${0.15 + rnd() * 0.25})`;
+      c.beginPath(); c.moveTo(tx, ty);
+      for (let k = 0; k < 3; k++) {
+        if (k % 2) tx += (rnd() - 0.5) * w * 0.4; else ty += (rnd() - 0.5) * h * 0.4;
+        c.lineTo(tx, ty);
+      }
+      c.stroke();
+      c.fillStyle = 'rgba(220,180,90,0.5)'; c.beginPath(); c.arc(tx, ty, 1.3, 0, Math.PI * 2); c.fill();
+    }
+    for (let i = 0; i < n * 0.8; i++) {
+      const cw = S(0.012 + rnd() * 0.02), ch = S(0.008 + rnd() * 0.01);
+      c.fillStyle = rnd() < 0.5 ? '#2a2f38' : '#6d5a3a';
+      c.fillRect(x + rnd() * w, y + rnd() * h, cw, ch);
+    }
+  }
+  function shield(c, x, y, w, h, label) {
+    rr(c, x, y, w, h, S(0.01)); c.fillStyle = metal(c, x, y, w, h, true); c.fill();
+    c.strokeStyle = 'rgba(255,255,255,0.35)'; c.lineWidth = 1; c.stroke();
+    rr(c, x + S(0.012), y + S(0.012), w - S(0.024), h - S(0.024), S(0.006)); c.strokeStyle = 'rgba(0,0,0,0.18)'; c.stroke();
+    c.fillStyle = 'rgba(40,45,55,0.25)';
+    for (let i = S(0.03); i < w - S(0.02); i += S(0.03)) for (let j = S(0.03); j < h - S(0.02); j += S(0.03)) {
+      c.beginPath(); c.arc(x + i, y + j, S(0.004), 0, Math.PI * 2); c.fill();
+    }
+    c.fillStyle = 'rgba(25,30,38,0.6)'; c.font = `700 ${S(0.028)}px "Exo 2", sans-serif`;
+    c.fillText(label, x + S(0.022), y + h - S(0.02));
+  }
+  function chip(c, x, y, s, label) {
+    rr(c, x, y, s, s, S(0.006)); c.fillStyle = '#16191f'; c.fill();
+    c.strokeStyle = 'rgba(255,255,255,0.15)'; c.stroke();
+    c.fillStyle = 'rgba(255,255,255,0.4)'; c.font = `600 ${S(0.022)}px "Exo 2", sans-serif`;
+    c.fillText(label, x + s * 0.22, y + s * 0.62);
+  }
+
+  // ---------- Layout ----------
+  let BAT = {}, path = [], pathLen = 0;
+  function layout() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth; H = window.innerHeight;
+    C.width = W * dpr; C.height = H * dpr;
+    C.style.width = W + 'px'; C.style.height = H + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (H / W >= 1.6) { px = 0; py = 0; pw = W; ph = H; }
+    else { ph = H; pw = Math.round(H / 2.15); px = (W - pw) / 2; py = 0; }
+    const bx = X(0.125), by = Y(0.335);
+    BAT = { x: bx, y: by, w: X(0.875) - bx, h: Y(0.835) - by, r: S(0.045) };
+    BAT.ix = BAT.x + S(0.03); BAT.iy = BAT.y + S(0.03); BAT.iw = BAT.w - S(0.06); BAT.ih = BAT.h - S(0.06);
+    BAT.fins = 18; BAT.gap = BAT.iw * 0.014; BAT.fw = (BAT.iw - BAT.gap * (BAT.fins - 1)) / BAT.fins;
+    // Charging current path: USB-C, sub-board, side flex, main board, charge pumps, connector, battery
+    path = mkPath([[0.5, 0.95], [0.5, 0.905], [0.101, 0.905], [0.101, 0.288], [0.57, 0.288], [0.765, 0.288], [0.765, 0.34]]);
+    pathLen = path.len;
+    // Discharge: from the battery back to the processor, the modem and the cameras
+    drainPaths = [
+      { p: mkPath([[0.765, 0.34], [0.765, 0.288], [0.28, 0.288], [0.28, 0.15]]), w: 0.5 },
+      { p: mkPath([[0.765, 0.34], [0.765, 0.288], [0.2, 0.288], [0.2, 0.255]]), w: 0.25 },
+      { p: mkPath([[0.765, 0.34], [0.765, 0.288], [0.85, 0.288], [0.85, 0.19]]), w: 0.25 }
+    ];
+    drainPaths.forEach(d => d.heat = 0);
+    buildBase();
+    buildMask();
+  }
+  let drainPaths = [];
+  function mkPath(pts) {
+    const p = pts.map(([a, b]) => [X(a), Y(b)]);
+    p.len = 0;
+    for (let i = 1; i < p.length; i++) p.len += Math.hypot(p[i][0] - p[i - 1][0], p[i][1] - p[i - 1][1]);
+    return p;
+  }
+  function along(d, pp = path) {
+    for (let i = 1; i < pp.length; i++) {
+      const [x0, y0] = pp[i - 1], [x1, y1] = pp[i], L = Math.hypot(x1 - x0, y1 - y0);
+      if (d <= L) return [x0 + (x1 - x0) * d / L, y0 + (y1 - y0) * d / L];
+      d -= L;
+    }
+    return pp[pp.length - 1];
+  }
+
+  // Darkness mask: clear around the battery, fading to full black about 5 mm
+  // inside the side edges and 7.5 mm inside the top and bottom edges of the screen
+  const mask = document.createElement('canvas');
+  function buildMask() {
+    mask.width = W * dpr; mask.height = H * dpr;
+    const m = mask.getContext('2d');
+    m.setTransform(dpr, 0, 0, dpr, 0, 0);
+    m.fillStyle = '#000'; m.fillRect(0, 0, W, H);
+    const mx = pw * 0.075, my = ph * 0.051, blur = Math.max(4, pw * 0.016);
+    m.globalCompositeOperation = 'destination-out';
+    m.filter = `blur(${blur}px)`;
+    rr(m, px + mx + blur * 1.2, py + my + blur * 1.2, pw - 2 * (mx + blur * 1.2), ph - 2 * (my + blur * 1.2), S(0.06));
+    m.fillStyle = '#fff'; m.fill();
+    m.filter = 'none';
+    m.globalCompositeOperation = 'source-over';
+    // Gradual dimming away from the battery
+    const cx = BAT.x + BAT.w / 2, cy = BAT.y + BAT.h / 2, rx = BAT.w * 0.66, ry = BAT.h * 0.6;
+    m.save();
+    m.translate(cx, cy); m.scale(1, ry / rx);
+    const g = m.createRadialGradient(0, 0, 0, 0, 0, rx * 1.9);
+    g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(0.5, 'rgba(0,0,0,0)');
+    g.addColorStop(0.6, 'rgba(0,0,0,0.3)'); g.addColorStop(0.8, 'rgba(0,0,0,0.72)'); g.addColorStop(1, 'rgba(0,0,0,0.92)');
+    m.fillStyle = g; m.fillRect(-W * 2, -H * 4, W * 4, H * 8);
+    m.restore();
+  }
+
+  // ---------- Theme ----------
+  function glowSprite(c) {
+    const cv = document.createElement('canvas'); cv.width = cv.height = 48;
+    const g = cv.getContext('2d'), gr = g.createRadialGradient(24, 24, 0, 24, 24, 24);
+    gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.18, rgba(c, 0.95));
+    gr.addColorStop(0.5, rgba(c, 0.3)); gr.addColorStop(1, rgba(c, 0));
+    g.fillStyle = gr; g.fillRect(0, 0, 48, 48); return cv;
+  }
+  function ringSprite(c) {
+    const cv = document.createElement('canvas'); cv.width = cv.height = 48;
+    const g = cv.getContext('2d'), gr = g.createRadialGradient(24, 24, 0, 24, 24, 24);
+    gr.addColorStop(0, rgba(c, 0.1)); gr.addColorStop(0.6, rgba(c, 0.3));
+    gr.addColorStop(0.78, 'rgba(255,255,255,0.95)'); gr.addColorStop(0.9, rgba(c, 0.6)); gr.addColorStop(1, rgba(c, 0));
+    g.fillStyle = gr; g.fillRect(0, 0, 48, 48);
+    g.fillStyle = 'rgba(255,255,255,0.9)'; g.beginPath(); g.arc(18, 17, 3.2, 0, Math.PI * 2); g.fill();
+    return cv;
+  }
+  const KEYS = ['flow', 'particle', 'deep', 'hot', 'glass', 'display'];
+  let target = 'charge', lastSprite = 0;
+  function rebuildSprites() {
+    theme.bright = mix(theme.hot, WHITE, 0.55);
+    spr = { flow: glowSprite(theme.flow), blue: glowSprite(theme.particle), ring: ringSprite(theme.particle) };
+    document.documentElement.style.setProperty('--disp', theme.display.join(','));
+  }
+  function stepTheme(t, dt) {
+    const goal = STATES[target];
+    let moving = false;
+    for (const k of KEYS) {
+      const next = theme[k].map((v, i) => {
+        const d = goal[k][i] - v;
+        if (Math.abs(d) > 0.5) moving = true;
+        return Math.abs(d) <= 0.5 ? goal[k][i] : v + d * Math.min(1, dt * 3);
+      });
+      theme[k] = next;
+    }
+    theme.bright = mix(theme.hot, WHITE, 0.55).map(Math.round);
+    if (moving && t - lastSprite > 60) { lastSprite = t; rebuildSprites(); }
+    else if (!moving && lastSprite !== -1) { lastSprite = -1; rebuildSprites(); }
+  }
+  function initTheme() {
+    theme = {};
+    for (const k of KEYS) theme[k] = STATES.charge[k].slice();
+    rebuildSprites();
+  }
+
+  // ---------- Charge state ----------
+  let mode = DEMO ? 'demo' : NATIVE ? 'native' : 'demo', demoState = DEMO === 'drain' ? 'drain' : 'charge', p = DEMO === 'drain' ? 45 : 40, running = true, speed = 1, holdUntil = 0, last = performance.now();
+  let watt = 90, lastStats = 0;
+  const flow = [], drops = [], bubbles = [], splashes = [], rises = [], drains = [];
+
+  // Real battery: Android reports whole percents, the decimals are eased in between
+  let bat = null, realInt = 0, realCharging = false, lastChange = 0, secPerPct = null, secPerPctDown = null;
+  async function initBattery() {
+    const st = document.getElementById('status');
+    if (!navigator.getBattery) { st.textContent = 'Този браузър не дава нивото на батерията. Отвори го в Chrome на Android.'; return false; }
+    try { bat = await navigator.getBattery(); } catch (e) { st.textContent = 'Нивото на батерията не може да се прочете.'; return false; }
+    realInt = Math.round(bat.level * 100); realCharging = bat.charging; lastChange = performance.now();
+    if (bat.charging && isFinite(bat.chargingTime) && bat.chargingTime > 0 && realInt < 100) secPerPct = bat.chargingTime / (100 - realInt);
+    let seen = false;
+    const onLevel = () => {
+      const n = Math.round(bat.level * 100);
+      if (n === realInt) return;
+      const now = performance.now();
+      if (seen && n > realInt) secPerPct = (now - lastChange) / 1000 / (n - realInt);
+      if (seen && n < realInt) secPerPctDown = (now - lastChange) / 1000 / (realInt - n);
+      seen = true; realInt = n; lastChange = now;
+    };
+    const onCharging = () => { realCharging = bat.charging; lastChange = performance.now(); seen = false; };
+    bat.addEventListener('levelchange', onLevel);
+    bat.addEventListener('chargingchange', onCharging);
+    setInterval(() => { onLevel(); if (bat.charging !== realCharging) onCharging(); }, 2000);
+    return true;
+  }
+  function realLevel() {
+    if (realCharging && realInt >= 100) return 100;
+    if (realCharging) {
+      const t = (performance.now() - lastChange) / 1000 / (secPerPct || 120);
+      return realInt + 0.995 * (1 - Math.exp(-1.6 * t));
+    }
+    const t = (performance.now() - lastChange) / 1000 / (secPerPctDown || 300);
+    return Math.max(0, realInt - 0.995 * (1 - Math.exp(-1.6 * t)));
+  }
+  // Native (Android app) battery: precise level from the charge counter, real watts
+  const nat = { p: 0, level: 0, plugged: false, full: false, w: 0, has: false, ready: false };
+  let natPoll = 0, natChange = 0, natPrevLevel = -1, natPrevPlug = null, natSecUp = null, natSecDown = null;
+  function pollNative(t) {
+    if (t - natPoll < 500) return;
+    natPoll = t;
+    try {
+      const s = JSON.parse(window.AndroidBattery.read());
+      if (s.level !== natPrevLevel || s.plugged !== natPrevPlug) {
+        if (natPrevLevel >= 0 && s.plugged === natPrevPlug && natChange) {
+          const sec = (t - natChange) / 1000 / Math.max(1, Math.abs(s.level - natPrevLevel));
+          if (s.level > natPrevLevel) natSecUp = sec; else natSecDown = sec;
+        }
+        natPrevLevel = s.level; natPrevPlug = s.plugged; natChange = t;
+      }
+      Object.assign(nat, s, { ready: true });
+    } catch (e) { /* keep last values */ }
+    if (!CUT) {
+      try { const c = JSON.parse(window.AndroidBattery.cutout() || 'null'); if (c && c.r > 0) CUT = c; } catch (e) {}
+    }
+  }
+  function nativeTarget(t) {
+    if (nat.full) return 100;
+    if (nat.has) return nat.p;
+    const k = (t - natChange) / 1000;
+    if (nat.plugged) return nat.level + 0.995 * (1 - Math.exp(-1.6 * k / (natSecUp || 120)));
+    return Math.max(0, nat.level - 0.995 * (1 - Math.exp(-1.6 * k / (natSecDown || 300))));
+  }
+  const pluggedIn = () => mode === 'native' ? nat.plugged : mode === 'real' ? realCharging : demoState === 'charge';
+  const isCharging = () => mode === 'native' ? nat.plugged && !nat.full && p < 99.999 : mode === 'real' ? realCharging && realInt < 100 : running && demoState === 'charge' && p < 99.999;
+  const isDraining = () => mode === 'native' ? !nat.plugged : mode === 'real' ? !realCharging : running && demoState === 'drain';
+
+  function update(t, dt) {
+    const k = dt * 60;
+    if (mode === 'native') {
+      pollNative(t);
+      if (nat.ready) {
+        const tp = nativeTarget(t);
+        p = Math.abs(tp - p) > 3 ? tp : p + (tp - p) * Math.min(1, dt * 2.5);
+      }
+    } else if (mode === 'demo' && demoState === 'drain') {
+      if (running) {
+        if (p > 1) { p = Math.max(1, p - 0.6 * speed * dt); if (p <= 1) holdUntil = t + 2000; }
+        else if (t > holdUntil) p = 45;
+      }
+    } else if (mode === 'demo') {
+      if (running) {
+        if (p < 99.999) {
+          const x = (p - 40) / 60;
+          p = Math.min(99.999, p + 2.0 * speed * (1 - 0.75 * x * x) * dt);
+          if (p >= 99.999) holdUntil = t + 2600;
+        } else if (t > holdUntil) p = 40;
+      }
+    } else p = realLevel();
+
+    const charging = isCharging(), draining = isDraining();
+    target = pluggedIn() ? 'charge' : p < 20 ? 'low' : 'drain';
+    stepTheme(t, dt);
+    if (t - lastStats > 400) {
+      lastStats = t;
+      const x = Math.max(0, (p - 40) / 60);
+      watt = charging ? Math.round(90 * (1 - 0.7 * Math.pow(Math.min(1, x), 1.5)) + (Math.random() - 0.5) * 2)
+        : draining ? +(1.6 + Math.random() * 1.6).toFixed(1) : 0;
+      if (mode === 'native') watt = +nat.w.toFixed(1);
+      if (mode === 'real' && bat) {
+        document.getElementById('status').textContent = !realCharging ? 'На батерия. Стотните са изчислени между целите проценти.' :
+          realInt >= 100 ? 'Напълно заредено' : 'Зарежда се. Стотните са изчислени между целите проценти.';
+      }
+    }
+
+    const { ix, iy, iw, ih } = BAT;
+    const levelY = iy + ih * (1 - p / 100);
+    const sp = mode === 'demo' ? speed : 1;
+    if (charging) {
+      const n = reduceMotion ? 1 : Math.min(5, 1 + Math.round(sp * 1.2));
+      for (let i = 0; i < n && flow.length < 500; i++) {
+        flow.push({ d: Math.random() * 6, v: S(0.008 + Math.random() * 0.006) * (0.7 + sp * 0.3), off: (Math.random() - 0.5) * S(0.014), size: S(0.025 + Math.random() * 0.03) });
+      }
+      if (!reduceMotion && Math.random() < 0.45 * k && bubbles.length < 80) {
+        bubbles.push({ x: ix + Math.random() * iw, y: iy + ih - 2, r: S(0.006 + Math.random() * 0.012), vy: S(0.0015 + Math.random() * 0.003), w: Math.random() * 6.28 });
+      }
+    }
+    if (draining && !reduceMotion && Math.random() < 0.35 * k * (mode === 'demo' ? Math.min(2, sp) : 1) && rises.length < 60) {
+      const r = Math.random();
+      const di = r < drainPaths[0].w ? 0 : r < drainPaths[0].w + drainPaths[1].w ? 1 : 2;
+      rises.push({ x: ix + Math.random() * iw, y: levelY, di, size: S(0.022 + Math.random() * 0.02), vy: S(0.0025 + Math.random() * 0.002) });
+    }
+    const [cx0, cy0] = drainPaths[0].p[0];
+    for (let i = rises.length - 1; i >= 0; i--) {
+      const q = rises[i];
+      q.y -= q.vy * k; q.x += (cx0 - q.x) * Math.min(1, 0.025 * k);
+      if (q.y <= cy0) { rises.splice(i, 1); drains.push({ d: 0, di: q.di, v: S(0.0035 + Math.random() * 0.002), size: q.size, off: (Math.random() - 0.5) * S(0.01) }); }
+    }
+    for (let i = drains.length - 1; i >= 0; i--) {
+      const q = drains[i], dp = drainPaths[q.di];
+      q.d += q.v * k;
+      if (q.d >= dp.p.len) { drains.splice(i, 1); dp.heat = Math.min(1, dp.heat + 0.25); }
+    }
+    drainPaths.forEach(dp => dp.heat = Math.max(0, dp.heat - 0.012 * k));
+    const pace = charging ? 1 : 0.12;
+    for (let i = flow.length - 1; i >= 0; i--) {
+      const q = flow[i];
+      q.d += q.v * k * pace;
+      if (q.d >= pathLen) {
+        flow.splice(i, 1);
+        const [x0, y0] = path[path.length - 1];
+        drops.push({ x: x0 + (Math.random() - 0.5) * S(0.04), y: y0, tx: ix + Math.random() * iw, vy: S(0.004 + Math.random() * 0.004), size: S(0.025 + Math.random() * 0.025) });
+      }
+    }
+    for (let i = drops.length - 1; i >= 0; i--) {
+      const q = drops[i];
+      q.vy += S(0.0004) * k; q.y += q.vy * k * pace; q.x += (q.tx - q.x) * Math.min(1, 0.06 * k);
+      if (q.y >= levelY) {
+        drops.splice(i, 1);
+        if (!reduceMotion) for (let j = 0; j < 3; j++) splashes.push({ x: q.x, y: levelY, vx: (Math.random() - 0.5) * S(0.008), vy: -S(0.004 + Math.random() * 0.006), life: 1 });
+      }
+    }
+    for (let i = splashes.length - 1; i >= 0; i--) {
+      const q = splashes[i];
+      q.x += q.vx * k; q.y += q.vy * k; q.vy += S(0.0006) * k; q.life -= 0.05 * k;
+      if (q.life <= 0) splashes.splice(i, 1);
+    }
+    for (let i = bubbles.length - 1; i >= 0; i--) {
+      const b = bubbles[i];
+      b.y -= b.vy * k * pace; b.x += Math.sin(t / 330 + b.w) * 0.3;
+      if (b.y < levelY + b.r) bubbles.splice(i, 1);
+    }
+  }
+
+  // ---------- Per-frame drawing ----------
+  function draw(t) {
+    const ts = t / 1000, th = theme, charging = isCharging();
+    ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+    ctx.drawImage(base, 0, 0, W, H);
+
+    // Glowing current path
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.beginPath(); path.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.strokeStyle = rgba(th.flow, charging ? 0.22 + 0.06 * Math.sin(ts * 4) : 0.04); ctx.lineWidth = S(0.012); ctx.stroke();
+    const draining = isDraining();
+    for (const dp of drainPaths) {
+      ctx.beginPath(); dp.p.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+      ctx.strokeStyle = rgba(th.flow, draining ? 0.1 + 0.03 * Math.sin(ts * 2) : 0.03); ctx.lineWidth = S(0.008); ctx.stroke();
+      const [ex, ey] = dp.p[dp.p.length - 1], rad = S(0.05 + 0.07 * dp.heat);
+      const hg = ctx.createRadialGradient(ex, ey, 0, ex, ey, rad);
+      hg.addColorStop(0, rgba(th.hot, 0.15 + 0.45 * dp.heat)); hg.addColorStop(1, rgba(th.hot, 0));
+      ctx.fillStyle = hg; ctx.fillRect(ex - rad, ey - rad, rad * 2, rad * 2);
+    }
+    ctx.globalCompositeOperation = 'source-over';
+
+    // ----- Glass battery -----
+    const { x, y, w, h, r, ix, iy, iw, ih, fins, gap, fw } = BAT;
+    const levelY = iy + ih * (1 - p / 100);
+    rr(ctx, x, y, w, h, r);
+    ctx.fillStyle = 'rgba(4,9,18,0.62)'; ctx.fill();
+    ctx.fillStyle = rgba(th.glass, 0.05); ctx.fill();
+
+    ctx.save(); rr(ctx, ix, iy, iw, ih, S(0.02)); ctx.clip();
+    const amp = Math.min(S(0.012), ih * 0.012) * (charging ? 1 : 0.3);
+    const wave = i => Math.sin(ts * 2.6 + i * 0.7) * amp;
+    const lit = ctx.createLinearGradient(0, levelY, 0, iy + ih);
+    lit.addColorStop(0, rgba(th.bright, 0.95)); lit.addColorStop(0.08, rgba(th.hot, 0.92)); lit.addColorStop(0.45, rgba(th.deep, 0.9)); lit.addColorStop(1, rgba(mix(th.deep, [0, 0, 0], 0.4), 0.9));
+    const edge = Math.max(1, fw * 0.12);
+    for (let i = 0; i < fins; i++) {
+      const fx = ix + i * (fw + gap);
+      const ly = Math.min(iy + ih, Math.max(iy, levelY + wave(i)));
+      ctx.fillStyle = 'rgba(42,50,64,0.5)'; ctx.fillRect(fx, iy, fw, ly - iy);
+      ctx.fillStyle = lit; ctx.fillRect(fx, ly, fw, iy + ih - ly);
+      ctx.fillStyle = 'rgba(220,232,250,0.13)'; ctx.fillRect(fx, iy, edge, ih);
+      ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(fx + fw - edge, iy, edge, ih);
+    }
+    ctx.globalCompositeOperation = 'lighter';
+    let g = ctx.createLinearGradient(0, levelY - S(0.08), 0, levelY + S(0.12));
+    g.addColorStop(0, rgba(th.hot, 0)); g.addColorStop(0.4, rgba(th.hot, charging ? 0.5 + 0.1 * Math.sin(ts * 7) : 0.25)); g.addColorStop(1, rgba(th.hot, 0));
+    ctx.fillStyle = g; ctx.fillRect(ix, levelY - S(0.08), iw, S(0.2));
+    ctx.beginPath();
+    for (let i = 0; i < fins; i++) { const xx = ix + i * (fw + gap) + fw / 2, yy = levelY + wave(i); i ? ctx.lineTo(xx, yy) : ctx.moveTo(xx, yy); }
+    ctx.strokeStyle = rgba(th.bright, 0.9); ctx.lineWidth = Math.max(1.5, S(0.005)); ctx.stroke();
+    for (const b of bubbles) { const sz = b.r * 2.4; ctx.drawImage(spr.ring, b.x - sz / 2, b.y - sz / 2, sz, sz); }
+    for (const q of drops) { ctx.drawImage(spr.blue, q.x - q.size / 2, q.y - q.size / 2, q.size, q.size); }
+    for (const q of splashes) { ctx.globalAlpha = Math.max(0, q.life); const sz = S(0.02); ctx.drawImage(spr.blue, q.x - sz / 2, q.y - sz / 2, sz, sz); }
+    ctx.globalAlpha = 1;
+    for (const q of rises) ctx.drawImage(spr.blue, q.x - q.size / 2, q.y - q.size / 2, q.size, q.size);
+    ctx.globalAlpha = 1;
+    ctx.restore();
+
+    // Battery glass shell
+    ctx.save();
+    rr(ctx, x, y, w, h, r);
+    ctx.shadowColor = rgba(th.glass, 1); ctx.shadowBlur = S(0.05);
+    ctx.strokeStyle = rgba(mix(th.glass, WHITE, 0.3), 0.85); ctx.lineWidth = Math.max(1.5, S(0.006)); ctx.stroke();
+    ctx.restore();
+    rr(ctx, x + S(0.012), y + S(0.012), w - S(0.024), h - S(0.024), r * 0.8);
+    ctx.strokeStyle = rgba(th.glass, 0.22); ctx.lineWidth = 1; ctx.stroke();
+    ctx.save(); rr(ctx, x, y, w, h, r); ctx.clip();
+    g = ctx.createLinearGradient(x, y, x + w * 0.6, y + h * 0.4);
+    g.addColorStop(0, 'rgba(255,255,255,0.14)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g; ctx.fillRect(x, y, w, h);
+    ctx.beginPath(); ctx.moveTo(x + w * 0.62, y); ctx.lineTo(x + w * 0.74, y); ctx.lineTo(x + w * 0.28, y + h); ctx.lineTo(x + w * 0.16, y + h); ctx.closePath();
+    ctx.fillStyle = 'rgba(255,255,255,0.04)'; ctx.fill();
+    ctx.restore();
+    ctx.fillStyle = 'rgba(220,235,255,0.35)'; ctx.font = `600 ${S(0.03)}px "Exo 2", sans-serif`;
+    ctx.fillText('Si/C 5400 mAh', ix + S(0.02), iy + S(0.05));
+
+    // Current flowing along the path
+    ctx.globalCompositeOperation = 'lighter';
+    for (const q of flow) {
+      const [fx, fy] = along(q.d);
+      const horiz = Math.abs(along(q.d + 2)[0] - fx) > Math.abs(along(q.d + 2)[1] - fy);
+      const ox = horiz ? 0 : q.off, oy = horiz ? q.off : 0;
+      ctx.drawImage(spr.flow, fx + ox - q.size / 2, fy + oy - q.size / 2, q.size, q.size);
+    }
+    for (const q of drains) {
+      const pp = drainPaths[q.di].p, [fx, fy] = along(q.d, pp), [nx, ny] = along(q.d + 2, pp);
+      const horiz = Math.abs(nx - fx) > Math.abs(ny - fy);
+      ctx.drawImage(spr.flow, fx + (horiz ? 0 : q.off) - q.size / 2, fy + (horiz ? q.off : 0) - q.size / 2, q.size, q.size);
+    }
+    ctx.globalCompositeOperation = 'source-over';
+
+    // ----- Display glass on top -----
+    ctx.save(); rr(ctx, px, py, pw, ph, S(0.1)); ctx.clip();
+    g = ctx.createLinearGradient(px, py, px + pw, py + ph);
+    g.addColorStop(0, 'rgba(150,190,255,0.07)'); g.addColorStop(0.35, 'rgba(255,255,255,0.0)');
+    g.addColorStop(0.42, 'rgba(255,255,255,0.05)'); g.addColorStop(0.5, 'rgba(255,255,255,0.0)'); g.addColorStop(1, 'rgba(120,170,255,0.05)');
+    ctx.fillStyle = g; ctx.fillRect(px, py, pw, ph);
+    ctx.restore();
+    ctx.drawImage(mask, 0, 0, W, H);
+
+    // ----- Punch-hole ring and charge readout -----
+    const cx = CUT ? CUT.x : X(0.5), cy = CUT ? CUT.y : Y(0.04), hole = CUT ? CUT.r : S(0.03), ringR = Math.max(S(0.052), hole + S(0.02));
+    g = ctx.createRadialGradient(cx, cy + S(0.17), 0, cx, cy + S(0.17), S(0.4));
+    g.addColorStop(0, 'rgba(0,0,0,0.55)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g; ctx.fillRect(cx - S(0.45), cy - S(0.1), S(0.9), S(0.55));
+    ctx.beginPath(); ctx.arc(cx, cy, hole, 0, Math.PI * 2); ctx.fillStyle = '#000'; ctx.fill();
+    ctx.beginPath(); ctx.arc(cx - hole * 0.3, cy - hole * 0.3, hole * 0.22, 0, Math.PI * 2); ctx.fillStyle = 'rgba(120,150,220,0.35)'; ctx.fill();
+    ctx.beginPath(); ctx.arc(cx, cy, ringR, 0, Math.PI * 2);
+    ctx.strokeStyle = rgba(th.display, 0.15); ctx.lineWidth = Math.max(2, S(0.009)); ctx.stroke();
+    const a0 = -Math.PI / 2, a1 = a0 + Math.PI * 2 * (p / 100);
+    ctx.save();
+    ctx.shadowColor = rgba(th.display, 1); ctx.shadowBlur = S(0.04);
+    ctx.beginPath(); ctx.arc(cx, cy, ringR, a0, a1);
+    ctx.strokeStyle = rgba(th.display, 0.95); ctx.lineCap = 'round'; ctx.stroke();
+    ctx.restore();
+    if (charging || draining) {
+      ctx.globalCompositeOperation = 'lighter';
+      const ca = a0 + (charging ? (ts * 1.4) % 1 : 1 - (ts * 0.5) % 1) * (a1 - a0), sz = S(0.06);
+      ctx.drawImage(spr.flow, cx + Math.cos(ca) * ringR - sz / 2, cy + Math.sin(ca) * ringR - sz / 2, sz, sz);
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
+    const str = p.toFixed(3), [ip, dp] = str.split('.');
+    const big = S(0.19), small = S(0.075);
+    ctx.font = `200 ${big}px Outfit, sans-serif`;
+    const advB = ctx.measureText('0').width;
+    ctx.font = `300 ${small}px Outfit, sans-serif`;
+    const advS = ctx.measureText('0').width, dotW = small * 0.32, pctW = ctx.measureText('%').width;
+    const total = advB * ip.length + dotW + advS * dp.length + small * 0.15 + pctW;
+    let tx = cx - total / 2;
+    const base1 = cy + ringR + S(0.03) + big * 0.78;
+    ctx.save();
+    ctx.shadowColor = rgba(th.display, 0.8); ctx.shadowBlur = S(0.05);
+    ctx.fillStyle = rgba(mix(th.display, WHITE, 0.55), 1); ctx.textAlign = 'center';
+    ctx.font = `200 ${big}px Outfit, sans-serif`;
+    for (const ch of ip) { ctx.fillText(ch, tx + advB / 2, base1); tx += advB; }
+    ctx.font = `300 ${small}px Outfit, sans-serif`;
+    ctx.fillText('.', tx + dotW / 2, base1); tx += dotW;
+    for (const ch of dp) { ctx.fillText(ch, tx + advS / 2, base1); tx += advS; }
+    tx += small * 0.15; ctx.textAlign = 'left'; ctx.fillText('%', tx, base1);
+    ctx.restore();
+
+    ctx.textAlign = 'center';
+    ctx.font = `500 ${S(0.038)}px Outfit, sans-serif`;
+    ctx.fillStyle = rgba(th.display, 0.9);
+    let label;
+    if (mode === 'demo' && !running) label = 'Paused';
+    else if (!pluggedIn()) label = (p < 20 ? 'Low battery' : 'On battery') + (mode === 'demo' || (mode === 'native' && watt >= 0.1) ? `  −${watt}W` : '');
+    else if (p >= 99.999 || (mode === 'real' && realInt >= 100) || (mode === 'native' && nat.full)) label = 'Fully charged';
+    else if (mode === 'native') label = watt >= 0.5 ? `Ultra charging  ${watt}W` : 'Charging';
+    else label = mode === 'real' ? 'Ultra charging' : `Ultra charging  ${watt}W`;
+    ctx.fillText(label, cx, base1 + S(0.07));
+    ctx.textAlign = 'left';
+  }
+
+  function frame(t) {
+    const dt = Math.min(0.05, (t - last) / 1000); last = t;
+    update(t, dt); draw(t);
+    requestAnimationFrame(frame);
+  }
+
+  // ---------- Settings ----------
+  const panel = document.getElementById('panel'), hint = document.getElementById('hint');
+  let hintTimer = setTimeout(() => hint.style.opacity = 0, 3500);
+  if (NATIVE) { hint.style.display = 'none'; panel.style.display = 'none'; }
+  C.addEventListener('click', () => { if (NATIVE) { window.AndroidBattery.onTap(); return; } panel.classList.toggle('open'); hint.style.opacity = 0; clearTimeout(hintTimer); keepAwake(); });
+  document.getElementById('close').addEventListener('click', () => panel.classList.remove('open'));
+  function setRunning(on) {
+    running = on;
+    document.getElementById('pause').textContent = on ? 'Пауза' : 'Продължи';
+  }
+  document.getElementById('pause').addEventListener('click', () => setRunning(!running));
+  const speedEl = document.getElementById('speed');
+  speedEl.addEventListener('input', () => { speed = parseFloat(speedEl.value); document.getElementById('spd').textContent = speed + '×'; });
+  const mCharge = document.getElementById('mCharge'), mDrain = document.getElementById('mDrain'), mReal = document.getElementById('mReal');
+  function select(btn) { [mCharge, mDrain, mReal].forEach(b => b.classList.toggle('on', b === btn)); }
+  function showDemoControls(on) { ['pause', 'restart', 'speedRow'].forEach(id => document.getElementById(id).style.display = on ? '' : 'none'); }
+  mCharge.addEventListener('click', () => {
+    if (mode === 'real') p = 40;
+    mode = 'demo'; demoState = 'charge'; holdUntil = 0; select(mCharge); showDemoControls(true); setRunning(true);
+    document.getElementById('status').textContent = 'Симулирано зареждане от 40% до 99.999%';
+  });
+  mDrain.addEventListener('click', () => {
+    if (mode === 'real' || p >= 99.999) p = 45;
+    mode = 'demo'; demoState = 'drain'; holdUntil = 0; select(mDrain); showDemoControls(true); setRunning(true);
+    document.getElementById('status').textContent = 'Симулирано разреждане. Под 20% става червено.';
+  });
+  mReal.addEventListener('click', async () => {
+    if (!bat && !(await initBattery())) return;
+    mode = 'real'; select(mReal); showDemoControls(false); lastStats = 0;
+  });
+  document.getElementById('restart').addEventListener('click', () => { p = demoState === 'drain' ? 45 : 40; holdUntil = 0; setRunning(true); });
+
+  let wakeLock = null;
+  async function keepAwake() {
+    try {
+      if ('wakeLock' in navigator && !wakeLock) {
+        wakeLock = await navigator.wakeLock.request('screen');
+        wakeLock.addEventListener('release', () => { wakeLock = null; });
+      }
+    } catch (e) { /* retried on the next tap */ }
+  }
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') keepAwake(); });
+
+  if (NATIVE) setInterval(() => {
+    C.style.transform = `translate(${Math.round((Math.random() - 0.5) * 6)}px, ${Math.round((Math.random() - 0.5) * 6)}px)`;
+  }, 60000);
+  window.addEventListener('resize', layout);
+  initTheme();
+  layout();
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(layout);
+  keepAwake();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
