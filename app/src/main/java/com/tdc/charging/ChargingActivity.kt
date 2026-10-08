@@ -27,6 +27,7 @@ class ChargingActivity : Activity() {
     private var auto = false
     private var lastTap = 0L
     @Volatile private var cutout = ""
+    private var loadedUrl = ""
 
     private val closeLater = Runnable { finish() }
 
@@ -61,6 +62,7 @@ class ChargingActivity : Activity() {
 
         val bridge = SceneBridge(BatteryReader(this), ::onTap) { cutout }
         web = Scene.create(this, intent.getStringExtra(EXTRA_DEMO), bridge)
+        loadedUrl = Scene.url(this, intent.getStringExtra(EXTRA_DEMO))
         setContentView(web)
         hideBars()
 
@@ -74,7 +76,23 @@ class ChargingActivity : Activity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        if (intent.getBooleanExtra(EXTRA_AUTO, false)) handler.removeCallbacks(closeLater)
+        auto = intent.getBooleanExtra(EXTRA_AUTO, false)
+        if (auto) handler.removeCallbacks(closeLater)
+        reloadIfChanged()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        reloadIfChanged()
+    }
+
+    /** The screen may still be open from before: show the theme/demo that is selected now. */
+    private fun reloadIfChanged() {
+        val url = Scene.url(this, intent.getStringExtra(EXTRA_DEMO))
+        if (url != loadedUrl) {
+            loadedUrl = url
+            web.loadUrl(url)
+        }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {

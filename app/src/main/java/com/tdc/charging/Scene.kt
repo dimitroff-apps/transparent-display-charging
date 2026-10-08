@@ -33,7 +33,6 @@ object Scene {
     @SuppressLint("SetJavaScriptEnabled")
     fun create(context: Context, demo: String?, bridge: SceneBridge): WebView =
         WebView(context).apply {
-            val theme = ThemeCatalog.current(context).id
             setBackgroundColor(Color.BLACK)
             overScrollMode = View.OVER_SCROLL_NEVER
             isVerticalScrollBarEnabled = false
@@ -41,7 +40,13 @@ object Scene {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             addJavascriptInterface(bridge, "AndroidBattery")
-            val query = "?theme=$theme" + if (demo != null) "&demo=$demo" else ""
-            loadUrl("file:///android_asset/scene.html$query")
+            loadUrl(url(context, demo))
         }
+
+    /** Page address with the theme that is selected right now */
+    fun url(context: Context, demo: String?): String {
+        val theme = ThemeCatalog.current(context).id
+        val demoPart = if (demo != null) "&demo=$demo" else ""
+        return "file:///android_asset/scene.html?theme=$theme$demoPart"
+    }
 }

@@ -122,6 +122,8 @@ class MainActivity : Activity() {
                 Prefs.setTheme(this, if (which == 0) null else ThemeCatalog.all[which - 1].id)
                 d.dismiss()
                 refresh()
+                // Show the chosen theme straight away
+                startActivity(ChargingActivity.intent(this, false, "charge"))
             }
             .setNegativeButton("Отказ", null)
             .show()
