@@ -2,6 +2,7 @@ package com.tdc.charging
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -25,6 +26,7 @@ class MainActivity : Activity() {
 
     private lateinit var status: TextView
     private lateinit var autoSwitch: Switch
+    private lateinit var themeText: TextView
 
     private fun dp(v: Int) = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v.toFloat(), resources.displayMetrics).toInt()
 
@@ -37,6 +39,11 @@ class MainActivity : Activity() {
 
         col.addView(text(getString(R.string.app_name), 24f, bold = true))
         col.addView(text("Рентгенов изглед на зареждането през дисплея.", 15f, muted = true))
+
+        col.addView(header("Тема"))
+        themeText = text("", 15f)
+        col.addView(themeText)
+        col.addView(button("Избери тема") { chooseTheme() })
 
         col.addView(header("Ръчно"))
         col.addView(button("Покажи анимацията") { startActivity(ChargingActivity.intent(this, auto = false)) })
@@ -103,7 +110,31 @@ class MainActivity : Activity() {
         refresh()
     }
 
+    private fun chooseTheme() {
+        val detected = ThemeCatalog.detect(this)
+        val autoLabel = "Автоматично (" + (detected?.name ?: ThemeCatalog.universalFor(this).name) + ")"
+        val items = listOf(autoLabel) + ThemeCatalog.all.map { "${it.brand}: ${it.name}" }
+        val saved = Prefs.theme(this)
+        val checked = if (saved == null) 0 else ThemeCatalog.all.indexOfFirst { it.id == saved } + 1
+        AlertDialog.Builder(this)
+            .setTitle("Тема")
+            .setSingleChoiceItems(items.toTypedArray(), checked) { d, which ->
+                Prefs.setTheme(this, if (which == 0) null else ThemeCatalog.all[which - 1].id)
+                d.dismiss()
+                refresh()
+            }
+            .setNegativeButton("Отказ", null)
+            .show()
+    }
+
     private fun refresh() {
+        val detected = ThemeCatalog.detect(this)
+        val cur = ThemeCatalog.current(this)
+        themeText.text = buildString {
+            append("Телефон: ${ThemeCatalog.modelLabel(this@MainActivity)}\n")
+            append(if (detected != null) "✅ Разпознат: ${detected.name}\n" else "⚪ Моделът не е в списъка, ползва се универсална тема\n")
+            append("Тема: ${cur.name}" + if (Prefs.theme(this@MainActivity) == null) " (автоматично)" else "")
+        }
         val overlay = Settings.canDrawOverlays(this)
         val notif = Build.VERSION.SDK_INT < 33 ||
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED

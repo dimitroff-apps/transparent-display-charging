@@ -108,6 +108,23 @@
   const NATIVE = !!window.AndroidBattery;
   const DEMO = params.get('demo');
   let CUT = null; // real punch-hole position from the phone
+  // Per-model layouts, front view (mirrored from teardown photos)
+  const T = (cam, n, soc, label, extra) => Object.assign({ cam, n, soc, label }, extra || {});
+  const LAYOUTS = {
+    s26u: T('col', 4, 'SM8850', 'Li-ion 5000 mAh', { spen: true }), s26p: T('col', 3, 'SoC', 'Li-ion 4900 mAh'), s26: T('col', 3, 'SoC', 'Li-ion 4300 mAh'),
+    s25u: T('col', 4, 'SM8750', 'Li-ion 5000 mAh', { spen: true }), s25p: T('col', 3, 'SM8750', 'Li-ion 4900 mAh'), s25: T('col', 3, 'SM8750', 'Li-ion 4000 mAh'),
+    s24u: T('col', 4, 'SM8650', 'Li-ion 5000 mAh', { spen: true }), s24p: T('col', 3, 'SoC', 'Li-ion 4900 mAh'), s24: T('col', 3, 'SoC', 'Li-ion 4000 mAh'),
+    x17u: T('circleC', 3, 'SM8850', 'Si/C 6800 mAh'), x17pm: T('band', 3, 'SM8850', 'Si/C 7500 mAh'), x17p: T('band', 3, 'SM8850', 'Si/C 6300 mAh'), x17: T('square', 3, 'SM8850', 'Si/C 7000 mAh'),
+    x15u: T('circleC', 4, 'SM8750', 'Si/C 5410 mAh'), x15p: T('square', 3, 'SM8750', 'Si/C 6100 mAh'), x15: T('square', 3, 'SM8750', 'Si/C 5400 mAh'),
+    x14u: T('circleC', 4, 'SM8650', 'Li-ion 5000 mAh'), x14p: T('square', 3, 'SM8650', 'Li-ion 4880 mAh'), x14: T('square', 3, 'SM8650', 'Li-ion 4610 mAh'),
+    p11px: T('bar', 3, 'Tensor G6', 'Li-ion 5000 mAh'), p11p: T('bar', 3, 'Tensor G6', 'Li-ion'), p11: T('bar', 2, 'Tensor G6', 'Li-ion'),
+    p10px: T('bar', 3, 'Tensor G5', 'Li-ion 5200 mAh'), p10p: T('bar', 3, 'Tensor G5', 'Li-ion 4870 mAh'), p10: T('bar', 3, 'Tensor G5', 'Li-ion 4970 mAh'),
+    p9px: T('bar', 3, 'Tensor G4', 'Li-ion 5060 mAh'), p9p: T('bar', 3, 'Tensor G4', 'Li-ion 4700 mAh'), p9: T('bar', 2, 'Tensor G4', 'Li-ion 4700 mAh'),
+    op15: T('square', 3, 'SM8850', 'Si/C 7300 mAh', { dual: true }), op13: T('circleR', 3, 'SM8750', 'Si/C 6000 mAh'), op12: T('circleR', 3, 'SM8650', 'Li-ion 5400 mAh'),
+    motosig: T('square', 3, 'SM8845', 'Si/C 5200 mAh'), moto60p: T('square', 3, 'SoC', 'Si/C 6000 mAh'), moto50u: T('square', 3, 'SM7675', 'Li-ion 4500 mAh'),
+    u61: T('square', 3, 'SoC', 'Li-ion'), u64: T('square', 3, 'SoC', 'Li-ion'), u67: T('circleR', 3, 'SoC', 'Li-ion'), u69: T('bar', 3, 'SoC', 'Li-ion')
+  };
+  const CFG = LAYOUTS[params.get('theme')] || LAYOUTS.x15;
   window.setCutout = (x, y, r) => { CUT = { x, y, r }; };
 
   const C = document.getElementById('scene');
@@ -173,46 +190,53 @@
     c.strokeStyle = 'rgba(255,205,130,0.55)'; c.lineWidth = 0.8;
     for (let j = 1; j < 4; j++) { c.beginPath(); c.moveTo(fx + fw * j / 4, Y(0.27)); c.lineTo(fx + fw * j / 4, Y(0.89)); c.stroke(); }
 
-    // Main board (cut out around the rear cameras)
-    const bx0 = X(0.03), by0 = Y(0.018), bw0 = pw * 0.94, bh0 = Y(0.305) - by0;
-    const camX = X(0.53), camY = Y(0.04), camW = X(0.955) - camX, camH = Y(0.235) - camY;
+    // Main board, with a cut-out around the rear cameras
+    const G = GEO, isl = G.island;
     c.beginPath();
-    if (c.roundRect) { c.roundRect(bx0, by0, bw0, bh0, S(0.06)); c.roundRect(camX, camY, camW, camH, S(0.04)); }
-    else { c.rect(bx0, by0, bw0, bh0); c.rect(camX, camY, camW, camH); }
+    if (c.roundRect) c.roundRect(X(0.03), Y(0.018), pw * 0.94, G.board - Y(0.018), S(0.06)); else c.rect(X(0.03), Y(0.018), pw * 0.94, G.board - Y(0.018));
+    if (isl.kind === 'circle') { c.moveTo(isl.cx + isl.r, isl.cy); c.arc(isl.cx, isl.cy, isl.r, 0, Math.PI * 2); }
+    else if (c.roundRect) c.roundRect(isl.x, isl.y, isl.w, isl.h, S(0.04)); else c.rect(isl.x, isl.y, isl.w, isl.h);
     c.fillStyle = '#0b1626'; c.fill('evenodd');
     c.save(); c.clip('evenodd');
-    pcbDetails(c, bx0, by0, bw0, bh0, 70);
+    pcbDetails(c, X(0.03), Y(0.018), pw * 0.94, G.board - Y(0.018), 70);
     c.restore();
-
-    // Rear camera modules (mirrored, seen from the front)
-    const cams = [
-      { x: 0.745, y: 0.05, s: 0.19, big: true },
-      { x: 0.555, y: 0.055, s: 0.16 },
-      { x: 0.755, y: 0.145, s: 0.16 }
-    ];
-    for (const m of cams) {
-      const x = X(m.x), y = Y(m.y), s = S(m.s);
-      c.fillStyle = 'rgba(210,125,40,0.85)'; c.fillRect(x - S(0.05), y + s * 0.4, S(0.06), s * 0.22);
-      rr(c, x, y, s, s, S(0.015)); c.fillStyle = metal(c, x, y, s, s, false); c.fill();
-      rr(c, x + s * 0.14, y + s * 0.14, s * 0.72, s * 0.72, S(0.008)); c.fillStyle = '#0d1016'; c.fill();
-      c.fillStyle = 'rgba(255,200,90,0.6)';
-      for (let i = 0; i < 5; i++) for (let j = 0; j < 5; j++) c.fillRect(x + s * (0.22 + i * 0.13), y + s * (0.22 + j * 0.13), s * 0.04, s * 0.04);
-      c.strokeStyle = 'rgba(255,255,255,0.18)'; c.lineWidth = 1; rr(c, x, y, s, s, S(0.015)); c.stroke();
+    if (isl.kind === 'circle') {
+      c.beginPath(); c.arc(isl.cx, isl.cy, isl.r, 0, Math.PI * 2);
+      c.strokeStyle = metal(c, isl.cx - isl.r, isl.cy - isl.r, isl.r * 2, isl.r * 2, true); c.lineWidth = S(0.012); c.stroke();
     }
-    c.beginPath(); c.arc(X(0.635), Y(0.185), S(0.035), 0, Math.PI * 2);
-    c.fillStyle = metal(c, X(0.6), Y(0.17), S(0.07), S(0.07), true); c.fill();
-    c.beginPath(); c.arc(X(0.635), Y(0.185), S(0.022), 0, Math.PI * 2); c.fillStyle = '#e8d9a8'; c.fill();
+    // Rear display of the Xiaomi 17 Pro models, seen from behind
+    if (G.rearDisplay) {
+      const d = G.rearDisplay;
+      rr(c, d.x, d.y, d.w, d.h, S(0.02)); c.fillStyle = '#0d1a3a'; c.fill();
+      c.strokeStyle = 'rgba(120,160,255,0.35)'; c.lineWidth = 1; c.stroke();
+      c.fillStyle = 'rgba(200,170,90,0.35)';
+      for (let i = 0; i < 10; i++) c.fillRect(d.x + d.w * 0.08 + i * d.w * 0.085, d.y + d.h * 0.82, d.w * 0.03, d.h * 0.1);
+    }
+    // Rear camera modules (mirrored, seen from the front)
+    for (const m of G.mods) {
+      const x = m.x, y = m.y, sz = m.s;
+      c.fillStyle = 'rgba(210,125,40,0.85)'; c.fillRect(x - S(0.04), y + sz * 0.4, S(0.05), sz * 0.22);
+      rr(c, x, y, sz, sz, S(0.015)); c.fillStyle = metal(c, x, y, sz, sz, false); c.fill();
+      rr(c, x + sz * 0.14, y + sz * 0.14, sz * 0.72, sz * 0.72, S(0.008)); c.fillStyle = '#0d1016'; c.fill();
+      c.fillStyle = 'rgba(255,200,90,0.6)';
+      for (let i = 0; i < 5; i++) for (let j = 0; j < 5; j++) c.fillRect(x + sz * (0.22 + i * 0.13), y + sz * (0.22 + j * 0.13), sz * 0.04, sz * 0.04);
+      c.strokeStyle = 'rgba(255,255,255,0.18)'; c.lineWidth = 1; rr(c, x, y, sz, sz, S(0.015)); c.stroke();
+    }
+    if (G.flash) {
+      c.beginPath(); c.arc(G.flash.x, G.flash.y, S(0.032), 0, Math.PI * 2);
+      c.fillStyle = metal(c, G.flash.x - S(0.032), G.flash.y - S(0.032), S(0.064), S(0.064), true); c.fill();
+      c.beginPath(); c.arc(G.flash.x, G.flash.y, S(0.02), 0, Math.PI * 2); c.fillStyle = '#e8d9a8'; c.fill();
+    }
 
     // Shield cans and chips
-    shield(c, X(0.1), Y(0.07), S(0.36), S(0.27), 'SM8750');
-    shield(c, X(0.1), Y(0.205), S(0.2), S(0.1), 'RF');
-    shield(c, X(0.33), Y(0.205), S(0.17), S(0.1), 'PMIC');
-    chip(c, X(0.54), Y(0.248), S(0.065), 'CP');
-    chip(c, X(0.62), Y(0.248), S(0.065), 'CP');
+    shield(c, G.soc.x, G.soc.y, G.soc.w, G.soc.h, CFG.soc);
+    shield(c, G.rf.x, G.rf.y, G.rf.w, G.rf.h, 'RF');
+    shield(c, G.pmic.x, G.pmic.y, G.pmic.w, G.pmic.h, 'PMIC');
+    G.cps.forEach(([x, y]) => chip(c, x, y, S(0.065), 'CP'));
     // Battery board-to-board connector
-    rr(c, X(0.70), Y(0.272), S(0.13), S(0.045), S(0.008)); c.fillStyle = '#121418'; c.fill();
+    rr(c, X(0.70), G.board - S(0.07), S(0.13), S(0.045), S(0.008)); c.fillStyle = '#121418'; c.fill();
     c.fillStyle = 'rgba(255,205,100,0.85)';
-    for (let i = 0; i < 9; i++) c.fillRect(X(0.71) + i * S(0.0125), Y(0.272) + S(0.012), S(0.005), S(0.02));
+    for (let i = 0; i < 9; i++) c.fillRect(X(0.71) + i * S(0.0125), G.board - S(0.058), S(0.005), S(0.02));
     // Earpiece and front camera
     rr(c, X(0.36), Y(0.004), S(0.28), S(0.02), S(0.01)); c.fillStyle = '#08090c'; c.fill();
     c.fillStyle = 'rgba(255,255,255,0.12)';
@@ -221,9 +245,16 @@
     c.fillStyle = 'rgba(210,125,40,0.85)'; c.fillRect(fcx - S(0.02), fcy + fs / 2, S(0.04), S(0.03));
 
     // Battery flex up to the connector
-    c.fillStyle = 'rgba(210,130,40,0.9)'; c.fillRect(X(0.725), Y(0.29), S(0.08), Y(0.335) - Y(0.29));
+    c.fillStyle = 'rgba(210,130,40,0.9)'; c.fillRect(X(0.725), GEO.board - S(0.03), S(0.08), GEO.battTop - GEO.board + S(0.03));
     c.strokeStyle = 'rgba(255,215,140,0.6)';
-    for (let j = 1; j < 4; j++) { c.beginPath(); c.moveTo(X(0.725) + S(0.02) * j, Y(0.29)); c.lineTo(X(0.725) + S(0.02) * j, Y(0.335)); c.stroke(); }
+    for (let j = 1; j < 4; j++) { c.beginPath(); c.moveTo(X(0.725) + S(0.02) * j, GEO.board - S(0.03)); c.lineTo(X(0.725) + S(0.02) * j, GEO.battTop); c.stroke(); }
+    // S Pen in its slot (Galaxy Ultra), bottom left seen from the front
+    if (CFG.spen) {
+      const sx0 = X(0.093), sw0 = S(0.032), sy0 = Y(0.56), sh0 = Y(0.975) - sy0;
+      rr(c, sx0 - S(0.006), sy0 - S(0.006), sw0 + S(0.012), sh0 + S(0.012), sw0 / 2); c.fillStyle = '#07080b'; c.fill();
+      rr(c, sx0, sy0, sw0, sh0, sw0 / 2); c.fillStyle = metal(c, sx0, sy0, sw0, sh0, false); c.fill();
+      c.fillStyle = 'rgba(199,125,42,0.9)'; c.fillRect(sx0, sy0 + sh0 * 0.86, sw0, S(0.01));
+    }
 
     // Bottom sub-board
     const sx = X(0.03), sy = Y(0.85), sw = pw * 0.94, sh = Y(0.988) - sy;
@@ -250,11 +281,11 @@
     c.fillStyle = 'rgba(255,255,255,0.35)'; c.fillRect(ux + S(0.015), uy + S(0.006), uw - S(0.03), 1);
 
     // Vapor chamber, a thin copper sheet just under the display
-    rr(c, X(0.06), Y(0.05), S(0.47), Y(0.31) - Y(0.05), S(0.03));
+    rr(c, GEO.soc.x - S(0.04), GEO.soc.y - S(0.02), GEO.soc.w + S(0.11), GEO.board - GEO.soc.y + S(0.01), S(0.03));
     c.fillStyle = 'rgba(205,140,90,0.10)'; c.fill();
     c.strokeStyle = 'rgba(235,175,125,0.32)'; c.lineWidth = 1; c.stroke();
     c.fillStyle = 'rgba(235,175,125,0.14)';
-    for (let i = 0; i < 12; i++) for (let j = 0; j < 14; j++) c.fillRect(X(0.08) + i * S(0.037), Y(0.06) + j * S(0.037), 1.2, 1.2);
+    for (let i = 0; i * S(0.037) < GEO.soc.w + S(0.09); i++) for (let j = 0; j * S(0.037) < GEO.board - GEO.soc.y; j++) c.fillRect(GEO.soc.x - S(0.02) + i * S(0.037), GEO.soc.y + j * S(0.037), 1.2, 1.2);
   }
   function pcbDetails(c, x, y, w, h, n) {
     c.lineWidth = 0.8;
@@ -303,24 +334,93 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     if (H / W >= 1.6) { px = 0; py = 0; pw = W; ph = H; }
     else { ph = H; pw = Math.round(H / 2.15); px = (W - pw) / 2; py = 0; }
-    const bx = X(0.125), by = Y(0.335);
+    GEO = geometry();
+    const bx = X(CFG.spen ? 0.15 : 0.125), by = GEO.battTop;
     BAT = { x: bx, y: by, w: X(0.875) - bx, h: Y(0.835) - by, r: S(0.045) };
     BAT.ix = BAT.x + S(0.03); BAT.iy = BAT.y + S(0.03); BAT.iw = BAT.w - S(0.06); BAT.ih = BAT.h - S(0.06);
     BAT.fins = 18; BAT.gap = BAT.iw * 0.014; BAT.fw = (BAT.iw - BAT.gap * (BAT.fins - 1)) / BAT.fins;
     // Charging current path: USB-C, sub-board, side flex, main board, charge pumps, connector, battery
-    path = mkPath([[0.5, 0.95], [0.5, 0.905], [0.101, 0.905], [0.101, 0.288], [0.57, 0.288], [0.765, 0.288], [0.765, 0.34]]);
+    const hy = GEO.board - S(0.035), cx765 = X(0.765), top = GEO.battTop + S(0.012);
+    path = mkPx([[X(0.5), Y(0.95)], [X(0.5), Y(0.905)], [X(0.101), Y(0.905)], [X(0.101), hy], [cx765, hy], [cx765, top]]);
     pathLen = path.len;
-    // Discharge: from the battery back to the processor, the modem and the cameras
+    // Discharge: from the battery back to the processor, the modem and the main camera
+    const ctr = r => [r.x + r.w / 2, r.y + r.h / 2], [sx, sy] = ctr(GEO.soc), [rx, ry] = ctr(GEO.rf);
     drainPaths = [
-      { p: mkPath([[0.765, 0.34], [0.765, 0.288], [0.28, 0.288], [0.28, 0.15]]), w: 0.5 },
-      { p: mkPath([[0.765, 0.34], [0.765, 0.288], [0.2, 0.288], [0.2, 0.255]]), w: 0.25 },
-      { p: mkPath([[0.765, 0.34], [0.765, 0.288], [0.85, 0.288], [0.85, 0.19]]), w: 0.25 }
+      { p: mkPx([[cx765, top], [cx765, hy], [sx, hy], [sx, sy]]), w: 0.5 },
+      { p: mkPx([[cx765, top], [cx765, hy], [rx, hy], [rx, ry]]), w: 0.25 },
+      { p: mkPx([[cx765, top], [cx765, hy], [GEO.main[0], hy], GEO.main]), w: 0.25 }
     ];
     drainPaths.forEach(d => d.heat = 0);
     buildBase();
     buildMask();
   }
-  let drainPaths = [];
+  let drainPaths = [], GEO = null;
+  function mkPx(pts) {
+    const p = pts.map(q => [q[0], q[1]]);
+    p.len = 0;
+    for (let i = 1; i < p.length; i++) p.len += Math.hypot(p[i][0] - p[i - 1][0], p[i][1] - p[i - 1][1]);
+    return p;
+  }
+  // Positions of cameras, board parts and battery for the selected phone (pixels)
+  function geometry() {
+    const t = CFG.cam, n = CFG.n, mods = [];
+    let island, flash = null, rearDisplay = null, spans = false;
+    const box = (pad) => {
+      const xs = mods.flatMap(m => [m.x, m.x + m.s]).concat(flash ? [flash.x - S(0.035), flash.x + S(0.035)] : []);
+      const ys = mods.flatMap(m => [m.y, m.y + m.s]).concat(flash ? [flash.y - S(0.035), flash.y + S(0.035)] : []);
+      const x0 = Math.min(...xs) - pad, y0 = Math.min(...ys) - pad;
+      return { kind: 'rect', x: x0, y: y0, w: Math.max(...xs) + pad - x0, h: Math.max(...ys) + pad - y0 };
+    };
+    if (t === 'square') {
+      mods.push({ x: X(0.745), y: Y(0.05), s: S(0.19) }, { x: X(0.555), y: Y(0.055), s: S(0.16) }, { x: X(0.755), y: Y(0.05) + S(0.21), s: S(0.16) });
+      flash = { x: X(0.635), y: Y(0.05) + S(0.3) };
+      island = box(S(0.025));
+    } else if (t === 'col') {
+      for (let i = 0; i < n; i++) mods.push({ x: X(0.69), y: Y(0.035) + i * S(0.135), s: S(0.12) });
+      if (n >= 4) mods.push({ x: X(0.53), y: Y(0.04), s: S(0.12) });
+      flash = { x: X(0.59), y: Y(0.04) + S(0.2) };
+      island = box(S(0.02));
+    } else if (t === 'circleC' || t === 'circleR') {
+      const centre = t === 'circleC';
+      const r = S(centre ? 0.21 : 0.19), cx = X(centre ? 0.5 : 0.7), cy = Y(0.035) + S(centre ? 0.25 : 0.2), ms = S(0.11);
+      const offs = n === 4 ? [[-0.5, -0.5], [0.5, -0.5], [-0.5, 0.5], [0.5, 0.5]] : [[0, -0.55], [-0.5, 0.35], [0.5, 0.35]];
+      offs.forEach(([a, b]) => mods.push({ x: cx + a * r * 0.95 - ms / 2, y: cy + b * r * 0.95 - ms / 2, s: ms }));
+      if (!centre) flash = { x: X(0.5), y: Y(0.05) };
+      island = { kind: 'circle', cx, cy, r };
+    } else if (t === 'bar') {
+      const y = Y(0.06), h = S(0.17), ms = S(0.12);
+      for (let i = 0; i < n; i++) mods.push({ x: X(0.82 - i * 0.16), y: y + (h - ms) / 2, s: ms });
+      flash = { x: X(0.18), y: y + h / 2 };
+      island = { kind: 'rect', x: X(0.04), y, w: pw * 0.92, h };
+      spans = true;
+    } else { // band: rear display + cameras across the top (Xiaomi 17 Pro)
+      const y = Y(0.05), h = S(0.3), ms = S(0.11);
+      island = { kind: 'rect', x: X(0.05), y, w: pw * 0.9, h };
+      rearDisplay = { x: X(0.09), y: y + S(0.04), w: S(0.4), h: S(0.22) };
+      mods.push({ x: X(0.6), y: y + S(0.03), s: ms }, { x: X(0.76), y: y + S(0.03), s: ms }, { x: X(0.6), y: y + S(0.16), s: ms });
+      flash = { x: X(0.81), y: y + S(0.21) };
+      spans = true;
+    }
+    const islBottom = island.kind === 'circle' ? island.cy + island.r : island.y + island.h;
+    const islLeft = island.kind === 'circle' ? island.cx - island.r : island.x;
+    const board = Math.max(Y(0.305), islBottom + S(0.15));
+    let soc, rf, pmic, cps;
+    if (spans) {
+      const top = islBottom + S(0.025), avail = board - S(0.09) - top;
+      soc = { x: X(0.08), y: top, w: S(0.3), h: avail };
+      rf = { x: X(0.41), y: top, w: S(0.2), h: avail * 0.55 };
+      pmic = { x: X(0.64), y: top, w: S(0.17), h: avail * 0.55 };
+      cps = [[X(0.41), top + avail * 0.62], [X(0.49), top + avail * 0.62]];
+    } else {
+      const rowY = board - S(0.11);
+      soc = { x: X(0.08), y: Y(0.07), w: Math.min(S(0.36), islLeft - X(0.08) - S(0.04)), h: Math.max(S(0.1), Math.min(S(0.27), rowY - S(0.03) - Y(0.07))) };
+      rf = { x: X(0.08), y: rowY, w: S(0.2), h: S(0.09) };
+      pmic = { x: X(0.31), y: rowY, w: S(0.17), h: S(0.09) };
+      cps = [[X(0.54), board - S(0.125)], [X(0.62), board - S(0.125)]];
+    }
+    const m0 = mods[0];
+    return { mods, island, flash, rearDisplay, board, battTop: board + S(0.065), soc, rf, pmic, cps, main: [m0.x + m0.s / 2, m0.y + m0.s / 2] };
+  }
   function mkPath(pts) {
     const p = pts.map(([a, b]) => [X(a), Y(b)]);
     p.len = 0;
@@ -646,8 +746,14 @@
     ctx.beginPath(); ctx.moveTo(x + w * 0.62, y); ctx.lineTo(x + w * 0.74, y); ctx.lineTo(x + w * 0.28, y + h); ctx.lineTo(x + w * 0.16, y + h); ctx.closePath();
     ctx.fillStyle = 'rgba(255,255,255,0.04)'; ctx.fill();
     ctx.restore();
+    if (CFG.dual) {
+      ctx.save(); ctx.setLineDash([S(0.02), S(0.012)]);
+      ctx.beginPath(); ctx.moveTo(x + S(0.03), y + h / 2); ctx.lineTo(x + w - S(0.03), y + h / 2);
+      ctx.strokeStyle = rgba(mix(th.glass, WHITE, 0.3), 0.6); ctx.lineWidth = Math.max(1, S(0.004)); ctx.stroke();
+      ctx.restore();
+    }
     ctx.fillStyle = 'rgba(220,235,255,0.35)'; ctx.font = `600 ${S(0.03)}px "Exo 2", sans-serif`;
-    ctx.fillText('Si/C 5400 mAh', ix + S(0.02), iy + S(0.05));
+    ctx.fillText(CFG.label, ix + S(0.02), iy + S(0.05));
 
     // Current flowing along the path
     ctx.globalCompositeOperation = 'lighter';
