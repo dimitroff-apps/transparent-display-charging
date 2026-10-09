@@ -53,6 +53,8 @@ object ThemeCatalog {
         Theme("motosig", "Motorola Signature", "Motorola", r("motorola signature", "edge 70 ultra")),
         Theme("moto60p", "Motorola Edge 60 Pro", "Motorola", r("edge 60 pro")),
         Theme("moto50u", "Motorola Edge 50 Ultra", "Motorola", r("edge 50 ultra")),
+        Theme("thinkp", "Motorola ThinkPhone", "Motorola", r("thinkphone", "^bronco$", "^xt2309")),
+        Theme("motog5gp", "Moto G 5G Plus", "Motorola", r("moto g 5g plus", "^nairo$", "^xt2075")),
 
         Theme("u61", "Универсална: компактен 6.1″", "Универсални"),
         Theme("u64", "Универсална: стандартен 6.4″", "Универсални"),

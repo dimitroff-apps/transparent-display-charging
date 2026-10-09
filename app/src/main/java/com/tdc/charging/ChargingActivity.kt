@@ -28,6 +28,7 @@ class ChargingActivity : Activity() {
     private var lastTap = 0L
     @Volatile private var cutout = ""
     private var loadedUrl = ""
+    private var restarts = 0
 
     private val closeLater = Runnable { finish() }
 
@@ -60,10 +61,7 @@ class ChargingActivity : Activity() {
             }
         }
 
-        val bridge = SceneBridge(BatteryReader(this), ::onTap) { cutout }
-        web = Scene.create(this, intent.getStringExtra(EXTRA_DEMO), bridge)
-        loadedUrl = Scene.url(this, intent.getStringExtra(EXTRA_DEMO))
-        setContentView(web)
+        createScene()
         hideBars()
 
         val filter = IntentFilter().apply {
@@ -71,6 +69,21 @@ class ChargingActivity : Activity() {
             addAction(Intent.ACTION_POWER_DISCONNECTED)
         }
         ContextCompat.registerReceiver(this, power, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+    }
+
+    private fun createScene() {
+        val bridge = SceneBridge(BatteryReader(this), ::onTap) { cutout }
+        web = Scene.create(this, intent.getStringExtra(EXTRA_DEMO), bridge) { dead ->
+            // The renderer died: drop that WebView and start a fresh one (a few times at most)
+            handler.post {
+                if (isFinishing || ++restarts > 3) { finish(); return@post }
+                (dead.parent as? android.view.ViewGroup)?.removeView(dead)
+                dead.destroy()
+                createScene()
+            }
+        }
+        loadedUrl = Scene.url(this, intent.getStringExtra(EXTRA_DEMO))
+        setContentView(web)
     }
 
     override fun onNewIntent(intent: Intent) {

@@ -13,7 +13,7 @@ class ChargeDreamService : DreamService() {
         isFullscreen = true
         isScreenBright = true
         val bridge = SceneBridge(BatteryReader(this), { finish() }) { "" }
-        web = Scene.create(this, null, bridge).also { setContentView(it) }
+        web = Scene.create(this, null, bridge) { finish() }.also { setContentView(it) }
     }
 
     override fun onDetachedFromWindow() {

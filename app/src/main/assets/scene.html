@@ -93,6 +93,15 @@
 </div>
 
 <script>
+// If the scene fails on some phone, show why on screen so it can be reported
+window.addEventListener('error', e => {
+  const d = document.createElement('div');
+  d.style.cssText = 'position:fixed;left:8px;right:8px;bottom:8px;color:#ff8a80;font:12px monospace;background:rgba(0,0,0,.8);padding:8px;z-index:9;white-space:pre-wrap';
+  d.textContent = 'Грешка: ' + e.message + '\n' + (e.filename || '').split('/').pop() + ':' + e.lineno + '\n' + navigator.userAgent;
+  document.body.appendChild(d);
+});
+</script>
+<script>
 (() => {
   // Colours follow the state: green while charging, orange on battery, red under 20%
   const STATES = {
@@ -134,6 +143,7 @@
     p9px: T('bar', 3, 'Tensor G4', 'Li-ion 5060 mAh'), p9p: T('bar', 3, 'Tensor G4', 'Li-ion 4700 mAh'), p9: T('bar', 2, 'Tensor G4', 'Li-ion 4700 mAh'),
     op15: T('square', 3, 'SM8850', 'Si/C 7300 mAh', { dual: true }), op13: T('circleR', 3, 'SM8750', 'Si/C 6000 mAh'), op12: T('circleR', 3, 'SM8650', 'Li-ion 5400 mAh'),
     motosig: T('square', 3, 'SM8845', 'Si/C 5200 mAh'), moto60p: T('square', 3, 'SoC', 'Si/C 6000 mAh'), moto50u: T('square', 3, 'SM7675', 'Li-ion 4500 mAh'),
+    thinkp: T('col', 3, 'SM8475', 'Li-ion 5000 mAh'), motog5gp: T('col', 3, 'SM7250', 'Li-ion 5000 mAh'),
     u61: T('square', 3, 'SoC', 'Li-ion'), u64: T('square', 3, 'SoC', 'Li-ion'), u67: T('circleR', 3, 'SoC', 'Li-ion'), u69: T('bar', 3, 'SoC', 'Li-ion')
   };
   const CFG = LAYOUTS[params.get('theme')] || LAYOUTS.x15;
@@ -412,7 +422,8 @@
   // ---------- Layout ----------
   let BAT = {}, path = [], pathLen = 0;
   function layout() {
-    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    // Phones with little memory draw at a lower resolution, so the big layers fit
+    dpr = Math.min(window.devicePixelRatio || 1, navigator.deviceMemory && navigator.deviceMemory <= 4 ? 1.5 : 2);
     W = window.innerWidth; H = window.innerHeight;
     C.width = W * dpr; C.height = H * dpr;
     C.style.width = W + 'px'; C.style.height = H + 'px';
@@ -430,7 +441,9 @@
     pathLen = path.len;
     // Discharge: from the battery back to the processor, the modem and the main camera
     const ctr = r => [r.x + r.w / 2, r.y + r.h / 2], [sx, sy] = ctr(GEO.soc), [rx, ry] = ctr(GEO.rf);
-    const [qx, qy] = ctr(GEO.pmic), side = X(0.101), low = Y(0.905);
+    // Bottom board is reached down the right edge and under the battery, never along the
+    // USB-C side flex: that one only carries current in from the charger
+    const [qx, qy] = ctr(GEO.pmic), side = X(0.915), under = (BAT.y + BAT.h + Y(0.85)) / 2;
     drainPaths = [
       { p: mkPx([[cx765, top], [cx765, hy], [sx, hy], [sx, sy]]), w: 0.32 },
       { p: mkPx([[cx765, top], [cx765, hy], [rx, hy], [rx, ry]]), w: 0.14 },
@@ -439,8 +452,8 @@
       // display: up to the display connector under the front camera
       { p: mkPx([[cx765, top], [cx765, hy], [X(0.5), hy], [X(0.5), Y(0.075)]]), w: 0.12 },
       // speaker and vibration motor on the bottom board, down the side flex
-      { p: mkPx([[cx765, top], [cx765, hy], [side, hy], [side, low], [X(0.77), low], [X(0.77), Y(0.917)]]), w: 0.1 },
-      { p: mkPx([[cx765, top], [cx765, hy], [side, hy], [side, low], [X(0.2), low]]), w: 0.1 }
+      { p: mkPx([[cx765, top], [cx765, hy], [side, hy], [side, under], [X(0.77), under], [X(0.77), Y(0.9)]]), w: 0.1 },
+      { p: mkPx([[cx765, top], [cx765, hy], [side, hy], [side, under], [X(0.2), under], [X(0.2), Y(0.895)]]), w: 0.1 }
     ];
     drainPaths.forEach(d => d.heat = 0);
     buildBase();
@@ -770,6 +783,8 @@
     }
     drainPaths.forEach(dp => dp.heat = Math.max(0, dp.heat - 0.012 * k));
     const pace = charging ? 1 : 0.12;
+    // No charger, no current on the cable path: what is left fades out instead of creeping on
+    if (!charging) for (let i = flow.length - 1; i >= 0; i--) if ((flow[i].fade = (flow[i].fade || 1) - 0.05 * k) <= 0) flow.splice(i, 1);
     for (let i = flow.length - 1; i >= 0; i--) {
       const q = flow[i];
       q.d += q.v * k * pace;
@@ -805,7 +820,7 @@
   // the bottom up to the charge level. The cell is drawn into its own canvas, then into the battery.
   const PH = { cv: null, back: null, front: null, mask: null, glow: null, glowAt: 0, chains: [], flashes: [], spawn: 0, MW: 1, MH: 1 };
   const between = (a, b) => a + Math.random() * (b - a);
-  const MARGIN = 0.05; // cell layers are 10% larger than the battery so the slow camera drift never shows an edge
+  const MARGIN = 0.03; // cell layers are 6% larger than the battery so the slow camera drift never shows an edge
 
   /** One crystalline granule: faceted, lit from the upper left, blue rim light from behind */
   function granuleSprite(size, rim) {
@@ -863,82 +878,87 @@
     return [cv, c];
   }
 
+  // Real cells are a stack: copper foil | anode | separator | cathode | aluminium foil | cathode | separator | anode | copper ...
+  // Seen edge-on that gives thin vertical bands with several separators across the battery.
+  const STACK = ['Cu', 'A', 'S', 'C', 'Al', 'C', 'S', 'A', 'Cu', 'A', 'S', 'C', 'Al', 'C', 'S', 'A', 'Cu'];
+  const BAND = { Cu: 0.025, Al: 0.025, S: 0.045, A: 0.0875, C: 0.0875 };
+
   function buildPhoto() {
     PH.MW = BAT.iw; PH.MH = BAT.ih;
     const MW = PH.MW, MH = PH.MH;
     PH.cv = document.createElement('canvas'); PH.cv.width = Math.round(MW * dpr); PH.cv.height = Math.round(MH * dpr);
     const sprites = [];
-    for (let i = 0; i < 18; i++) sprites.push(granuleSprite(160, [90, 170, 255]));
+    for (let i = 0; i < 18; i++) sprites.push(granuleSprite(64, [90, 170, 255]));
     const pick = () => sprites[Math.floor(Math.random() * sprites.length)];
-    const [back, b] = layer(1), [mask, m] = layer(0.5), [front, f] = layer(1);
+    const [back, b] = layer(1), [mask, m] = layer(0.5), [far, fc] = layer(0.5);
     const x0 = -MW * MARGIN, y0 = -MH * MARGIN, w0 = MW * (1 + 2 * MARGIN), h0 = MH * (1 + 2 * MARGIN);
 
-    // Deep background with soft out-of-focus lights
+    // Lay the bands out across the battery (the outer foils run into the drift margin)
+    const total = STACK.reduce((s, k) => s + BAND[k], 0), segs = [];
+    let sx = x0 + (w0 - MW * total) / 2;
+    for (const k of STACK) { const w = MW * BAND[k]; segs.push({ k, x0: sx, x1: sx + w }); sx += w; }
+    segs[0].x0 = x0; segs[segs.length - 1].x1 = x0 + w0;
+    // Each separator: ions go from its cathode side into its anode side while charging
+    PH.seps = [];
+    segs.forEach((s, i) => {
+      if (s.k !== 'S') return;
+      const left = segs[i - 1], right = segs[i + 1], anodeLeft = left.k === 'A';
+      PH.seps.push({ x0: s.x0, x1: s.x1, dir: anodeLeft ? -1 : 1, a: anodeLeft ? left : right, c: anodeLeft ? right : left });
+    });
+
+    // Background
     let gr = b.createLinearGradient(0, y0, 0, y0 + h0);
     gr.addColorStop(0, '#04070d'); gr.addColorStop(0.5, '#0a1322'); gr.addColorStop(1, '#03050a');
     b.fillStyle = gr; b.fillRect(x0, y0, w0, h0);
-    b.filter = `blur(${Math.round(MW * 0.03)}px)`;
-    for (let i = 0; i < 22; i++) {
-      b.fillStyle = Math.random() < 0.7 ? `rgba(70,140,255,${between(0.05, 0.14)})` : `rgba(255,150,70,${between(0.04, 0.1)})`;
-      b.beginPath(); b.arc(between(x0, x0 + w0), between(y0, y0 + h0), MW * between(0.03, 0.1), 0, Math.PI * 2); b.fill();
-    }
-    b.filter = 'none';
 
-    // Current collectors: brushed copper (anode side) and aluminium (cathode side)
-    const foil = (x, w, c1, c2) => {
-      const fg = b.createLinearGradient(x, 0, x + w, 0);
-      fg.addColorStop(0, c1); fg.addColorStop(0.5, c2); fg.addColorStop(1, c1);
-      b.fillStyle = fg; b.fillRect(x, y0, w, h0);
-      for (let i = 0; i < 120; i++) {
-        b.fillStyle = Math.random() < 0.5 ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.18)';
-        b.fillRect(x + Math.random() * w, y0, Math.max(0.6, MW * 0.0015), h0);
-      }
-    };
-    foil(x0, MW * 0.1, '#3a1d0c', '#a8612e');
-    foil(MW * 0.95, MW * 0.1, '#2a2e35', '#9aa3ad');
-
-    // Far granules: smaller, darker and out of focus, packed so no background shows through
-    const scatter = (c, n, xa, xb, sa, sb) => {
-      for (let i = 0; i < n; i++) {
-        const s = MW * between(sa, sb);
-        c.drawImage(pick(), between(xa, xb) - s / 2, between(y0, y0 + h0) - s / 2, s, s);
-      }
-    };
-    b.filter = `blur(${Math.max(1, Math.round(MW * 0.004))}px) brightness(0.4)`;
-    scatter(b, 420, x0, MW * 0.45, 0.035, 0.07);
-    scatter(b, 420, MW * 0.55, x0 + w0, 0.035, 0.07);
-    b.filter = 'none';
-
-    // Separator: white fibrous membrane down the middle
-    gr = b.createLinearGradient(MW * 0.41, 0, MW * 0.59, 0);
-    gr.addColorStop(0, 'rgba(225,232,245,0)'); gr.addColorStop(0.5, 'rgba(225,232,245,0.2)'); gr.addColorStop(1, 'rgba(225,232,245,0)');
-    b.fillStyle = gr; b.fillRect(MW * 0.41, y0, MW * 0.18, h0);
-    for (let i = 0; i < 900; i++) {
-      const sx = MW * (0.5 + between(-0.075, 0.075) * (0.6 + 0.4 * Math.random())), sy = between(y0, y0 + h0), len = MH * between(0.03, 0.2);
-      b.beginPath(); b.moveTo(sx, sy);
-      b.bezierCurveTo(sx + MW * between(-0.03, 0.03), sy + len * 0.33, sx + MW * between(-0.03, 0.03), sy + len * 0.66, sx + MW * between(-0.02, 0.02), sy + len);
-      b.strokeStyle = `rgba(238,243,252,${between(0.03, 0.2)})`; b.lineWidth = between(0.4, 1.2); b.stroke();
-    }
-
-    // Near granules: sharp and densely packed; the anode ones also go into the mask that glows with the charge
-    for (const [xa, xb, anode] of [[x0, MW * 0.43, true], [MW * 0.57, x0 + w0, false]]) {
-      for (let i = 0; i < 360; i++) {
-        const s = MW * between(0.05, 0.11), sp = pick(), gx = between(xa, xb) - s / 2, gy = between(y0, y0 + h0) - s / 2;
-        b.drawImage(sp, gx, gy, s, s);
-        if (anode) m.drawImage(sp, gx, gy, s, s);
+    for (const s of segs) {
+      const w = s.x1 - s.x0;
+      if (s.k === 'Cu' || s.k === 'Al') {
+        // Brushed metal foil
+        const cu = s.k === 'Cu', fg = b.createLinearGradient(s.x0, 0, s.x1, 0);
+        fg.addColorStop(0, cu ? '#3a1d0c' : '#2a2e35'); fg.addColorStop(0.5, cu ? '#b06a33' : '#a3abb5'); fg.addColorStop(1, cu ? '#3a1d0c' : '#2a2e35');
+        b.fillStyle = fg; b.fillRect(s.x0, y0, w, h0);
+        for (let i = 0; i < 20; i++) {
+          b.fillStyle = Math.random() < 0.5 ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.2)';
+          b.fillRect(s.x0 + Math.random() * w, y0, 0.6, h0);
+        }
+      } else if (s.k === 'S') {
+        // Separator: white fibrous membrane
+        gr = b.createLinearGradient(s.x0, 0, s.x1, 0);
+        gr.addColorStop(0, 'rgba(225,232,245,0.04)'); gr.addColorStop(0.5, 'rgba(225,232,245,0.22)'); gr.addColorStop(1, 'rgba(225,232,245,0.04)');
+        b.fillStyle = gr; b.fillRect(s.x0, y0, w, h0);
+        for (let i = 0; i < 260; i++) {
+          const fx = between(s.x0, s.x1), fy = between(y0, y0 + h0), len = MH * between(0.02, 0.1);
+          b.beginPath(); b.moveTo(fx, fy);
+          b.bezierCurveTo(fx + w * between(-0.4, 0.4), fy + len * 0.33, fx + w * between(-0.4, 0.4), fy + len * 0.66, fx + w * between(-0.3, 0.3), fy + len);
+          b.strokeStyle = `rgba(238,243,252,${between(0.05, 0.25)})`; b.lineWidth = between(0.3, 0.8); b.stroke();
+        }
+      } else {
+        // Electrode: a far layer (soft, dark) and a near layer (sharp), packed tight
+        const anode = s.k === 'A', cnt = Math.round(w * h0 / Math.pow(MW * 0.03, 2) * 2.4);
+        for (let i = 0; i < cnt; i++) {
+          const sz = MW * between(0.02, 0.035);
+          fc.drawImage(pick(), between(s.x0, s.x1) - sz / 2, between(y0, y0 + h0) - sz / 2, sz, sz);
+        }
+        s.near = [];
+        for (let i = 0; i < cnt; i++) {
+          const sz = MW * between(0.022, 0.042), sp = pick(), gx = between(s.x0 - sz * 0.2, s.x1 + sz * 0.2 - sz), gy = between(y0, y0 + h0) - sz / 2;
+          s.near.push([sp, gx, gy, sz]);
+          if (anode) m.drawImage(sp, gx, gy, sz, sz);
+        }
       }
     }
+    // Far layer once, blurred and darkened, then the sharp near granules on top
+    b.save(); b.setTransform(1, 0, 0, 1, 0, 0);
+    b.filter = `blur(${Math.max(1, Math.round(MW * 0.004 * dpr))}px) brightness(0.45)`;
+    b.drawImage(far, 0, 0, back.width, back.height);
+    b.restore();
+    for (const s of segs) if (s.near) for (const [sp, gx, gy, sz] of s.near) b.drawImage(sp, gx, gy, sz, sz);
 
-    // Foreground: a few big, very blurred granules at the sides for depth of field
-    f.filter = `blur(${Math.round(MW * 0.016)}px) brightness(0.75)`;
-    f.globalAlpha = 0.55;
-    for (let i = 0; i < 4; i++) {
-      const s = MW * between(0.2, 0.3), side = i % 2 ? MW * between(0.9, 1.02) : MW * between(-0.02, 0.1);
-      f.drawImage(pick(), side - s / 2, between(y0, y0 + h0) - s / 2, s, s);
-    }
-    f.filter = 'none'; f.globalAlpha = 1;
+    // Front: just a soft vignette (the depth now comes from the far layer)
+    const [front, f] = layer(0.5);
     gr = f.createRadialGradient(MW / 2, MH / 2, Math.min(MW, MH) * 0.3, MW / 2, MH / 2, Math.max(MW, MH) * 0.75);
-    gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(0,0,0,0.65)');
+    gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(0,0,0,0.6)');
     f.fillStyle = gr; f.fillRect(x0, y0, w0, h0);
 
     const glow = document.createElement('canvas'); glow.width = mask.width; glow.height = mask.height;
@@ -954,7 +974,7 @@
     const ly = MH * (1 - p / 100), gr = c.createLinearGradient(0, ly - MH * 0.02, 0, MH * (1 + MARGIN));
     gr.addColorStop(0, rgba(th.bright, 0)); gr.addColorStop(0.03, rgba(th.bright, 0.95));
     gr.addColorStop(0.1, rgba(th.hot, 0.7)); gr.addColorStop(1, rgba(th.deep, 0.5));
-    c.fillStyle = gr; c.fillRect(-MW * MARGIN, ly - MH * 0.02, MW * 0.6, MH * 1.2);
+    c.fillStyle = gr; c.fillRect(-MW, ly - MH * 0.02, MW * 3, MH * 1.2);
     c.setTransform(1, 0, 0, 1, 0, 0); c.globalCompositeOperation = 'destination-in';
     c.drawImage(PH.mask, 0, 0);
     c.globalCompositeOperation = 'source-over';
@@ -962,15 +982,18 @@
 
   function updatePhoto(t, dt) {
     const { MW, MH } = PH, charging = isCharging(), draining = isDraining(), sp = mode === 'demo' ? speed : 1;
-    const rate = reduceMotion ? 0.3 : charging ? 0.9 + Math.min(3.5, watt / 30) : draining ? 0.45 : 0.06;
+    const rate = reduceMotion ? 1 : charging ? 4 + Math.min(10, watt / 10) : draining ? 2 : 0.2;
     PH.spawn = Math.min(1.5, PH.spawn + rate * dt * sp);
-    while (PH.spawn >= 1 && PH.chains.length < 26) {
+    while (PH.spawn >= 1 && PH.chains.length < 70 && PH.seps.length) {
       PH.spawn -= 1;
-      const into = charging || !draining, depth = Math.random() < 0.35 ? between(0.45, 0.65) : 1, n = 3 + Math.floor(Math.random() * 5);
+      // Charging: from the cathode through a separator into the anode; on battery the other way
+      const sep = PH.seps[Math.floor(Math.random() * PH.seps.length)], into = charging || !draining;
+      const from = into ? sep.c : sep.a, to = into ? sep.a : sep.c, dir = into ? sep.dir : -sep.dir;
+      const depth = Math.random() < 0.35 ? between(0.5, 0.7) : 1, n = 2 + Math.floor(Math.random() * 3);
       PH.chains.push({
-        dir: into ? -1 : 1, x: into ? MW * between(0.82, 1.0) : MW * between(0.0, 0.18), end: into ? MW * between(0.08, 0.36) : MW * between(0.64, 0.92),
-        y: MH * between(0.04, 0.97), v: MW * between(0.1, 0.17) * (into ? 1 : 0.6) * (charging ? 0.7 + Math.min(1.2, watt / 80) : 0.6),
-        n, gap: MW * between(0.045, 0.07) * depth, ph: between(0, 6.28), amp: MH * between(0.004, 0.012), depth, absorbed: 0
+        dir, x: between(from.x0, from.x1), end: between(to.x0 + (to.x1 - to.x0) * 0.2, to.x1 - (to.x1 - to.x0) * 0.2),
+        y: MH * between(0.02, 0.98), v: MW * between(0.05, 0.09) * (into ? 1 : 0.6) * (charging ? 0.7 + Math.min(1.2, watt / 80) : 0.6),
+        n, gap: MW * between(0.018, 0.028) * depth, ph: between(0, 6.28), amp: MH * between(0.002, 0.006), depth, absorbed: 0
       });
     }
     for (let i = PH.chains.length - 1; i >= 0; i--) {
@@ -983,61 +1006,49 @@
       }
       if (c.absorbed >= c.n) PH.chains.splice(i, 1);
     }
-    for (let i = PH.flashes.length - 1; i >= 0; i--) { PH.flashes[i].life -= dt * 1.6; if (PH.flashes[i].life <= 0) PH.flashes.splice(i, 1); }
+    for (let i = PH.flashes.length - 1; i >= 0; i--) { PH.flashes[i].life -= dt * 2.2; if (PH.flashes[i].life <= 0) PH.flashes.splice(i, 1); }
   }
 
   /** Renders the cell into PH.cv (battery-sized) */
   function drawCell(t) {
     const { MW, MH } = PH, m = PH.cv.getContext('2d'), ts = t / 1000, th = theme, charging = isCharging();
     const ox = Math.sin(ts * 0.11) * MW * 0.012, oy = Math.cos(ts * 0.08) * MH * 0.01;
-    const lx = -MW * MARGIN + ox * 0.6, ly = -MH * MARGIN + oy * 0.6, lw = MW * (1 + 2 * MARGIN), lh = MH * (1 + 2 * MARGIN);
+    const lx = -MW * MARGIN + ox, ly = -MH * MARGIN + oy, lw = MW * (1 + 2 * MARGIN), lh = MH * (1 + 2 * MARGIN);
     m.setTransform(dpr, 0, 0, dpr, 0, 0);
     m.globalCompositeOperation = 'source-over'; m.globalAlpha = 1;
     m.drawImage(PH.back, lx, ly, lw, lh);
     if (t - PH.glowAt > 90) { PH.glowAt = t; buildGlow(th); }
-    // Stored lithium: a soft light in the gaps of the anode plus a faint tint on the granules
+    // Stored lithium: the anode bands light up from the bottom to the charge level
     m.globalCompositeOperation = 'lighter';
-    const lvY = MH * (1 - p / 100) + oy * 0.6;
-    let g = m.createLinearGradient(0, lvY - MH * 0.03, 0, MH);
-    g.addColorStop(0, rgba(th.hot, 0)); g.addColorStop(0.06, rgba(th.hot, 0.2)); g.addColorStop(1, rgba(th.deep, 0.12));
-    m.fillStyle = g; m.fillRect(0, lvY - MH * 0.03, MW * 0.47, MH);
-    m.globalAlpha = 0.3 + (charging ? 0.06 * Math.sin(ts * 3) : 0);
+    m.globalAlpha = 0.45 + (charging ? 0.08 * Math.sin(ts * 3) : 0);
     m.drawImage(PH.glow, lx, ly, lw, lh);
     m.globalAlpha = 1;
 
-    m.save(); m.translate(ox * 0.6, oy * 0.6);
-    // Warm heat around the separator while current flows
-    const heat = charging ? 0.07 + Math.min(0.08, watt / 1500) : isDraining() ? 0.03 : 0.01;
-    g = m.createRadialGradient(MW / 2, MH / 2, 0, MW / 2, MH / 2, MW * 0.55);
-    g.addColorStop(0, rgba(th.hot, heat)); g.addColorStop(1, rgba(th.hot, 0));
-    m.fillStyle = g; m.fillRect(0, 0, MW, MH);
-    // Ion chains: a thread of light with beads that light up the granules around them
+    m.save(); m.translate(ox, oy);
+    // Ion chains: tiny beads of light on a thread, crossing the separators
     for (const c of PH.chains) {
       const pts = [];
-      for (let i = c.absorbed; i < c.n; i++) {
-        const bx = c.x - c.dir * i * c.gap, by = c.y + Math.sin(ts * 2 + c.ph + i * 0.9) * c.amp;
-        pts.push([bx, by, clamp01((c.dir < 0 ? MW * 1.02 - bx : bx + MW * 0.02) / (MW * 0.1))]);
-      }
+      for (let i = c.absorbed; i < c.n; i++) pts.push([c.x - c.dir * i * c.gap, c.y + Math.sin(ts * 2 + c.ph + i * 0.9) * c.amp]);
       if (pts.length > 1) {
         m.beginPath(); pts.forEach(([x, y], i) => i ? m.lineTo(x, y) : m.moveTo(x, y));
-        m.strokeStyle = rgba(th.flow, 0.28 * c.depth); m.lineWidth = Math.max(1, MW * 0.005 * c.depth); m.stroke();
+        m.strokeStyle = rgba(th.flow, 0.35 * c.depth); m.lineWidth = Math.max(0.6, MW * 0.0025 * c.depth); m.stroke();
       }
-      for (const [x, y, a] of pts) {
-        const halo = MW * 0.11 * c.depth, core = MW * 0.045 * c.depth, dot = MW * 0.016 * c.depth;
-        m.globalAlpha = 0.16 * a * c.depth; m.drawImage(spr.flow, x - halo, y - halo, halo * 2, halo * 2);
-        m.globalAlpha = a; m.drawImage(spr.flow, x - core / 2, y - core / 2, core, core);
+      for (const [x, y] of pts) {
+        const halo = MW * 0.05 * c.depth, core = MW * 0.02 * c.depth, dot = MW * 0.008 * c.depth;
+        m.globalAlpha = 0.14 * c.depth; m.drawImage(spr.flow, x - halo, y - halo, halo * 2, halo * 2);
+        m.globalAlpha = 1; m.drawImage(spr.flow, x - core / 2, y - core / 2, core, core);
         m.drawImage(spr.flow, x - dot / 2, y - dot / 2, dot, dot);
       }
     }
     for (const q of PH.flashes) {
-      const r = MW * (0.03 + 0.07 * (1 - q.life)) * q.depth;
+      const r = MW * (0.01 + 0.025 * (1 - q.life)) * q.depth;
       m.globalAlpha = q.life * 0.8; m.drawImage(spr.flow, q.x - r, q.y - r, r * 2, r * 2);
     }
     m.globalAlpha = 1;
     m.restore();
 
     m.globalCompositeOperation = 'source-over';
-    m.drawImage(PH.front, -MW * MARGIN + ox * 1.6, -MH * MARGIN + oy * 1.6, lw, lh);
+    m.drawImage(PH.front, lx, ly, lw, lh);
   }
 
   // ---------- Photo style: camera flies into the battery when the view opens, then back out ----------
@@ -1065,7 +1076,7 @@
     ctx.globalCompositeOperation = 'lighter';
     ctx.beginPath(); path.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
     ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-    ctx.strokeStyle = rgba(th.flow, charging ? 0.22 + 0.06 * Math.sin(ts * 4) : 0.04); ctx.lineWidth = S(0.012); ctx.stroke();
+    ctx.strokeStyle = rgba(th.flow, charging ? 0.22 + 0.06 * Math.sin(ts * 4) : draining ? 0 : 0.04); ctx.lineWidth = S(0.012); ctx.stroke();
     for (const dp of drainPaths) {
       ctx.beginPath(); dp.p.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
       ctx.strokeStyle = rgba(th.flow, draining ? 0.1 + 0.03 * Math.sin(ts * 2) : powered ? 0.06 + 0.02 * Math.sin(ts * 2) : 0.03);
@@ -1149,8 +1160,10 @@
       const [fx, fy] = along(q.d);
       const horiz = Math.abs(along(q.d + 2)[0] - fx) > Math.abs(along(q.d + 2)[1] - fy);
       const ox = horiz ? 0 : q.off, oy = horiz ? q.off : 0;
+      ctx.globalAlpha = q.fade === undefined ? 1 : Math.max(0, q.fade);
       ctx.drawImage(spr.flow, fx + ox - q.size / 2, fy + oy - q.size / 2, q.size, q.size);
     }
+    ctx.globalAlpha = 1;
     for (const q of drains) {
       const pp = drainPaths[q.di].p, [fx, fy] = along(q.d, pp), [nx, ny] = along(q.d + 2, pp);
       const horiz = Math.abs(nx - fx) > Math.abs(ny - fy);
