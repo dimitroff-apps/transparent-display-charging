@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
+import android.os.SystemClock
 import java.util.Locale
 import kotlin.math.abs
 
@@ -20,6 +21,8 @@ class BatteryReader(context: Context) {
     private var basePlugged: Boolean? = null
     private var baseCounter = 0L
     private var capacityUah = 0.0
+    private var integrated = 0.0 // µAh counted from the current since the last whole-percent step
+    private var lastAt = 0L
 
     @Synchronized
     fun snapshot(): String {
@@ -40,6 +43,9 @@ class BatteryReader(context: Context) {
 
         val hasCounter = counter > 0 && counter != Long.MAX_VALUE && level in 1..99
         var precise = level.toDouble()
+        val now = SystemClock.elapsedRealtime()
+        val dtHours = if (lastAt > 0) ((now - lastAt).coerceIn(0, 5_000)) / 3_600_000.0 else 0.0
+        lastAt = now
         if (hasCounter) {
             val estimate = counter * 100.0 / level
             capacityUah = if (capacityUah <= 0) estimate else capacityUah * 0.95 + estimate * 0.05
@@ -47,8 +53,14 @@ class BatteryReader(context: Context) {
                 baseLevel = level
                 basePlugged = plugged
                 baseCounter = counter
+                integrated = 0.0
             }
-            val frac = (counter - baseCounter) / (capacityUah / 100.0)
+            // Some phones (Motorola) only recompute the counter from the whole percent, so it never
+            // moves in between. Then count the charge from the current instead: µA × hours = µAh.
+            integrated += abs(current) * dtHours
+            val moved = counter - baseCounter
+            val gained = if (moved != 0L) moved.toDouble() else if (plugged) integrated else -integrated
+            val frac = gained / (capacityUah / 100.0)
             precise = if (plugged) level + frac.coerceIn(0.0, 0.999) else level + frac.coerceIn(-0.999, 0.0)
         }
         if (full) precise = 100.0
