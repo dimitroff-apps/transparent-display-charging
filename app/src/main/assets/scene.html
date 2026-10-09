@@ -143,7 +143,7 @@ window.addEventListener('error', e => {
     p9px: T('bar', 3, 'Tensor G4', 'Li-ion 5060 mAh'), p9p: T('bar', 3, 'Tensor G4', 'Li-ion 4700 mAh'), p9: T('bar', 2, 'Tensor G4', 'Li-ion 4700 mAh'),
     op15: T('square', 3, 'SM8850', 'Si/C 7300 mAh', { dual: true }), op13: T('circleR', 3, 'SM8750', 'Si/C 6000 mAh'), op12: T('circleR', 3, 'SM8650', 'Li-ion 5400 mAh'),
     motosig: T('square', 3, 'SM8845', 'Si/C 5200 mAh'), moto60p: T('square', 3, 'SoC', 'Si/C 6000 mAh'), moto50u: T('square', 3, 'SM7675', 'Li-ion 4500 mAh'),
-    thinkp: T('col', 3, 'SM8475', 'Li-ion 5000 mAh'), motog5gp: T('col', 3, 'SM7250', 'Li-ion 5000 mAh'),
+    thinkp: T('pair', 3, 'SM8475', 'Li-ion 5000 mAh'), motog5gp: T('grid', 4, 'SM7250', 'Li-ion 5000 mAh'),
     u61: T('square', 3, 'SoC', 'Li-ion'), u64: T('square', 3, 'SoC', 'Li-ion'), u67: T('circleR', 3, 'SoC', 'Li-ion'), u69: T('bar', 3, 'SoC', 'Li-ion')
   };
   const CFG = LAYOUTS[params.get('theme')] || LAYOUTS.x15;
@@ -425,6 +425,11 @@ window.addEventListener('error', e => {
     // Phones with little memory draw at a lower resolution, so the big layers fit
     dpr = Math.min(window.devicePixelRatio || 1, navigator.deviceMemory && navigator.deviceMemory <= 4 ? 1.5 : 2);
     W = window.innerWidth; H = window.innerHeight;
+    lastSize = W + 'x' + H;
+    // Opened over a locked, dark screen the page can start at 0×0; wait for the real size
+    // (the resize event calls layout again) instead of building empty layers
+    ready = W > 10 && H > 10;
+    if (!ready) return;
     C.width = W * dpr; C.height = H * dpr;
     C.style.width = W + 'px'; C.style.height = H + 'px';
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -457,7 +462,6 @@ window.addEventListener('error', e => {
     ];
     drainPaths.forEach(d => d.heat = 0);
     buildBase();
-    buildMask();
     if (STYLE === 'photo') buildPhoto();
   }
   let drainPaths = [], GEO = null;
@@ -493,6 +497,17 @@ window.addEventListener('error', e => {
       offs.forEach(([a, b]) => mods.push({ x: cx + a * r * 0.95 - ms / 2, y: cy + b * r * 0.95 - ms / 2, s: ms }));
       if (!centre) flash = { x: X(0.5), y: Y(0.05) };
       island = { kind: 'circle', cx, cy, r };
+    } else if (t === 'grid') { // square module with a 2×2 grid, long flash beside it (Moto G 5G Plus)
+      const ms = S(0.11), step = S(0.125), x0 = X(0.67), y0 = Y(0.035);
+      for (let i = 0; i < n; i++) mods.push({ x: x0 + (i % 2) * step, y: y0 + Math.floor(i / 2) * step, s: ms });
+      flash = { x: x0 - S(0.06), y: y0 + step * 0.9 };
+      island = box(S(0.025));
+    } else if (t === 'pair') { // two big lenses in a column, a small lens and the flash beside them (ThinkPhone)
+      const big = S(0.14), x0 = X(0.71), y0 = Y(0.035);
+      mods.push({ x: x0, y: y0, s: big }, { x: x0, y: y0 + S(0.16), s: big });
+      if (n > 2) mods.push({ x: x0 - S(0.11), y: y0 + S(0.02), s: S(0.08) });
+      flash = { x: x0 - S(0.07), y: y0 + S(0.22) };
+      island = box(S(0.025));
     } else if (t === 'bar') {
       const y = Y(0.06), h = S(0.17), ms = S(0.12);
       for (let i = 0; i < n; i++) mods.push({ x: X(0.82 - i * 0.16), y: y + (h - ms) / 2, s: ms });
@@ -542,25 +557,8 @@ window.addEventListener('error', e => {
     return pp[pp.length - 1];
   }
 
-  // Darkness mask: clear around the battery, fading to full black about 5 mm
-  // inside the side edges and 7.5 mm inside the top and bottom edges of the screen.
-  // The black edge frame is drawn once; the ellipse around the battery follows the swipe.
-  const mask = document.createElement('canvas');
-  function buildMask() {
-    mask.width = W * dpr; mask.height = H * dpr;
-    const m = mask.getContext('2d');
-    m.setTransform(dpr, 0, 0, dpr, 0, 0);
-    m.fillStyle = '#000'; m.fillRect(0, 0, W, H);
-    const mx = pw * 0.075, my = ph * 0.051, blur = Math.max(4, pw * 0.016);
-    m.globalCompositeOperation = 'destination-out';
-    m.filter = `blur(${blur}px)`;
-    rr(m, px + mx + blur * 1.2, py + my + blur * 1.2, pw - 2 * (mx + blur * 1.2), ph - 2 * (my + blur * 1.2), S(0.06));
-    m.fillStyle = '#fff'; m.fill();
-    m.filter = 'none';
-    m.globalCompositeOperation = 'source-over';
-  }
-
   // ---------- Reveal swipe ----------
+  // The only darkening is a soft ellipse around the battery that follows the swipe (no solid frame at the edges)
   // reveal 0 = pure black with only the readout, REVEAL_HOME = the default look, 1 = clean board, no darkening
   const REVEAL_HOME = 0.3;
   let reveal = REVEAL_HOME, revealTarget = REVEAL_HOME;
@@ -576,7 +574,6 @@ window.addEventListener('error', e => {
     const edge = 0.92 + 0.03 * (1 - clamp01(reveal / REVEAL_HOME)), fade = blackness() * (1 - 0.85 * introE);
     if (fade > 0.001) {
       ctx.globalAlpha = fade;
-      ctx.drawImage(mask, 0, 0, W, H);
       const rx = BAT.w * 0.66 * k, ry = BAT.h * 0.6 * k;
       ctx.save();
       ctx.translate(cx, cy); ctx.scale(1, ry / rx);
@@ -1247,13 +1244,23 @@ window.addEventListener('error', e => {
     return w >= 100 ? 'Insane charging' : w >= 40 ? 'Ultra charging' : w >= 10 ? 'Fast charging' : 'Slow charging';
   }
 
+  let ready = false, lastSize = '';
   function frame(t) {
-    const dt = Math.min(0.05, (t - last) / 1000); last = t;
-    update(t, dt);
-    if (STYLE === 'photo') updatePhoto(t, dt);
-    reveal += (revealTarget - reveal) * Math.min(1, dt * 14);
-    draw(t);
+    // Ask for the next frame first, so one bad frame can never stop the animation for good
     requestAnimationFrame(frame);
+    const dt = Math.min(0.05, (t - last) / 1000); last = t;
+    // Some phones change the size without a resize event (screen turning on over the lock screen)
+    const size = window.innerWidth + 'x' + window.innerHeight;
+    if (size !== lastSize) { lastSize = size; layout(); }
+    if (!ready) return;
+    try {
+      update(t, dt);
+      if (STYLE === 'photo') updatePhoto(t, dt);
+      reveal += (revealTarget - reveal) * Math.min(1, dt * 14);
+      draw(t);
+    } catch (e) {
+      console.error('frame: ' + (e && e.message));
+    }
   }
 
   // Swipe up from the lower part of the screen opens the ellipse (to clean board by
