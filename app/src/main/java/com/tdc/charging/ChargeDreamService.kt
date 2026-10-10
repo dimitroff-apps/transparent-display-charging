@@ -12,7 +12,7 @@ class ChargeDreamService : DreamService() {
         isInteractive = false
         isFullscreen = true
         isScreenBright = true
-        val bridge = SceneBridge(BatteryReader(this), { finish() }) { "" }
+        val bridge = SceneBridge(BatteryReader(this), { finish() }, { "" })
         web = Scene.create(this, null, bridge) { finish() }.also { setContentView(it) }
     }
 

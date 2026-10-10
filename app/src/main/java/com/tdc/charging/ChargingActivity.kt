@@ -72,7 +72,7 @@ class ChargingActivity : Activity() {
     }
 
     private fun createScene() {
-        val bridge = SceneBridge(BatteryReader(this), ::onTap) { cutout }
+        val bridge = SceneBridge(BatteryReader(this), ::onTap, { cutout }, ::setDim)
         web = Scene.create(this, intent.getStringExtra(EXTRA_DEMO), bridge) { dead ->
             // The renderer died: drop that WebView and start a fresh one (a few times at most)
             handler.post {
@@ -96,7 +96,34 @@ class ChargingActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        web.onResume()
         reloadIfChanged()
+        handler.post(fullCheck)
+    }
+
+    /** Not visible (screen off, another app on top): stop drawing completely */
+    override fun onPause() {
+        handler.removeCallbacks(fullCheck)
+        web.onPause()
+        super.onPause()
+    }
+
+    /** Night mode from the page: a dim screen while it shows only the percentage */
+    private fun setDim(on: Boolean) {
+        window.attributes = window.attributes.apply {
+            screenBrightness = if (on) 0.02f else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+        }
+    }
+
+    /** Fully charged on the real battery: let the screen time out instead of keeping it on all night */
+    private val battery by lazy { BatteryReader(this) }
+    private val fullCheck = object : Runnable {
+        override fun run() {
+            val full = intent.getStringExtra(EXTRA_DEMO) == null && battery.isFull()
+            if (full) window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            else window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            handler.postDelayed(this, 30_000)
+        }
     }
 
     /** The screen may still be open from before: show the theme/demo that is selected now. */

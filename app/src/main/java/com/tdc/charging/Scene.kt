@@ -18,9 +18,16 @@ import android.webkit.WebViewClient
 class SceneBridge(
     private val reader: BatteryReader,
     private val onTapAction: () -> Unit,
-    private val cutoutJson: () -> String
+    private val cutoutJson: () -> String,
+    private val onDim: (Boolean) -> Unit = {}
 ) {
     private val main = Handler(Looper.getMainLooper())
+
+    /** Night mode from the page: dim the screen (true) or give the normal brightness back (false) */
+    @JavascriptInterface
+    fun setDim(on: Boolean) {
+        main.post { onDim(on) }
+    }
 
     @JavascriptInterface
     fun read(): String = reader.snapshot()

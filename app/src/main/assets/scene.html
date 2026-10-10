@@ -1063,7 +1063,8 @@ window.addEventListener('error', e => {
   let introStart = -1, introE = 0;
   const easeInOut = x => x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
   function introAt(t) {
-    if (STYLE !== 'photo' || reduceMotion) return 0;
+    // No fly-in when the view opens pure black (it would only cost power behind the black)
+    if (STYLE !== 'photo' || reduceMotion || revealTarget <= 0.01) return 0;
     if (introStart < 0) introStart = t;
     const s = (t - introStart) / 1000;
     if (s < 0.6) return 0;
@@ -1196,7 +1197,12 @@ window.addEventListener('error', e => {
     let g;
     // Photo style opens with a fly-in: the camera moves into the battery and back out
     introE = introAt(t);
-    if (introE > 0) {
+    const pure = pureBlack();
+    if (pure) {
+      // Swiped all the way down: nothing but the readout is visible, so nothing else is drawn
+      ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+      ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+    } else if (introE > 0) {
       const bx = BAT.x + BAT.w / 2, by = BAT.y + BAT.h / 2, z = 1 + (Math.min(W * 0.98 / BAT.w, H * 0.95 / BAT.h) - 1) * introE;
       ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
       ctx.save();
@@ -1207,14 +1213,16 @@ window.addEventListener('error', e => {
 
     // ----- Display glass on top (fades out with the black display) -----
     const black = blackness();
-    ctx.save(); rr(ctx, px, py, pw, ph, S(0.1)); ctx.clip();
-    ctx.globalAlpha = black;
-    g = ctx.createLinearGradient(px, py, px + pw, py + ph);
-    g.addColorStop(0, 'rgba(150,190,255,0.07)'); g.addColorStop(0.35, 'rgba(255,255,255,0.0)');
-    g.addColorStop(0.42, 'rgba(255,255,255,0.05)'); g.addColorStop(0.5, 'rgba(255,255,255,0.0)'); g.addColorStop(1, 'rgba(120,170,255,0.05)');
-    ctx.fillStyle = g; ctx.fillRect(px, py, pw, ph);
-    ctx.restore();
-    drawDarkness();
+    if (!pure) {
+      ctx.save(); rr(ctx, px, py, pw, ph, S(0.1)); ctx.clip();
+      ctx.globalAlpha = black;
+      g = ctx.createLinearGradient(px, py, px + pw, py + ph);
+      g.addColorStop(0, 'rgba(150,190,255,0.07)'); g.addColorStop(0.35, 'rgba(255,255,255,0.0)');
+      g.addColorStop(0.42, 'rgba(255,255,255,0.05)'); g.addColorStop(0.5, 'rgba(255,255,255,0.0)'); g.addColorStop(1, 'rgba(120,170,255,0.05)');
+      ctx.fillStyle = g; ctx.fillRect(px, py, pw, ph);
+      ctx.restore();
+      drawDarkness();
+    }
 
     // ----- Charge readout: it lives on the black display and fades with it -----
     const shown = black * black; // fade a bit ahead of the darkness so nothing ghosts over the clean board
@@ -1268,18 +1276,42 @@ window.addEventListener('error', e => {
     return w >= 100 ? 'Insane charging' : w >= 40 ? 'Ultra charging' : w >= 10 ? 'Fast charging' : 'Slow charging';
   }
 
+  // ---------- Power saving ----------
+  // The view often runs all night on the charger, so it must stay cheap: a busy GPU heats the phone
+  // and the phone then slows its own charging down.
+  //  - 30 fps for the normal view (high refresh panels would otherwise draw 90-120 times a second)
+  //  - pure black (swiped all the way down): only the readout, 4 times a second
+  //  - full battery: 6 fps
+  //  - night mode: 5 minutes without a touch -> pure black and a dim screen; a touch brings the view back
+  const pureBlack = () => reveal <= 0.01 && revealTarget <= 0.01 && introE === 0;
+  const fullNow = () => mode === 'native' ? nat.full : p >= 99.999;
+  const NIGHT_AFTER = 5 * 60 * 1000;
+  let lastDraw = 0, lastTouch = performance.now(), night = false, nightSaved = REVEAL_HOME;
+  const setDim = on => { try { if (NATIVE && window.AndroidBattery.setDim) window.AndroidBattery.setDim(on); } catch (_) {} };
+  function wake() {
+    lastTouch = performance.now();
+    if (!night) return;
+    night = false; revealTarget = nightSaved; setDim(false);
+  }
+
   let ready = false, lastSize = '';
   function frame(t) {
     // Ask for the next frame first, so one bad frame can never stop the animation for good
     requestAnimationFrame(frame);
-    const dt = Math.min(0.05, (t - last) / 1000); last = t;
     // Some phones change the size without a resize event (screen turning on over the lock screen)
     const size = window.innerWidth + 'x' + window.innerHeight;
     if (size !== lastSize) { lastSize = size; layout(); }
     if (!ready) return;
+    const fps = pureBlack() ? 4 : fullNow() ? 6 : 30;
+    if (t - lastDraw < 1000 / fps - 4) return;
+    lastDraw = t;
+    const dt = Math.min(fps < 10 ? 0.3 : 0.06, (t - last) / 1000); last = t;
+    if (NATIVE && !night && t - lastTouch > NIGHT_AFTER && revealTarget > 0.01) {
+      night = true; nightSaved = revealTarget; revealTarget = 0; setDim(true);
+    }
     try {
       update(t, dt);
-      if (STYLE === 'photo') updatePhoto(t, dt);
+      if (STYLE === 'photo' && !pureBlack()) updatePhoto(t, dt);
       reveal += (revealTarget - reveal) * Math.min(1, dt * 14);
       draw(t);
     } catch (e) {
@@ -1291,7 +1323,7 @@ window.addEventListener('error', e => {
   // about the middle of the screen); swipe down closes it to ~95% dark.
   // Only the view changes: the charge animation keeps running untouched.
   let drag = null, dragged = false;
-  C.addEventListener('pointerdown', e => { drag = { id: e.pointerId, y: e.clientY, from: revealTarget }; dragged = false; });
+  C.addEventListener('pointerdown', e => { wake(); drag ={ id: e.pointerId, y: e.clientY, from: revealTarget }; dragged = false; });
   C.addEventListener('pointermove', e => {
     if (!drag || e.pointerId !== drag.id) return;
     const dy = drag.y - e.clientY;

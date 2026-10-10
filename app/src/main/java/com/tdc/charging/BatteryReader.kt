@@ -73,6 +73,14 @@ class BatteryReader(context: Context) {
         )
     }
 
+    /** On a charger and at 100% (or reported full) */
+    fun isFull(): Boolean {
+        val i = ctx.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)) ?: return false
+        val plugged = i.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0
+        val level = i.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) * 100 / i.getIntExtra(BatteryManager.EXTRA_SCALE, 100).coerceAtLeast(1)
+        return plugged && (level >= 100 || i.getIntExtra(BatteryManager.EXTRA_STATUS, -1) == BatteryManager.BATTERY_STATUS_FULL)
+    }
+
     fun isPlugged(): Boolean {
         val i = ctx.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)) ?: return false
         return i.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0
