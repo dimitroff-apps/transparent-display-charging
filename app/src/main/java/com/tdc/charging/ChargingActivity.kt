@@ -174,9 +174,11 @@ class ChargingActivity : Activity() {
         }
     }
 
-    /** Opened by the charger: one tap closes. Opened by hand: double tap closes. */
+    /**
+     * A double tap closes the view, however it was opened. A single tap only wakes it from
+     * night mode (the page handles that), so a brush of the finger does not close it.
+     */
     private fun onTap() {
-        if (auto) { finish(); return }
         val now = SystemClock.uptimeMillis()
         if (now - lastTap < 400) finish()
         lastTap = now
